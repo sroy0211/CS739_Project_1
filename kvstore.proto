@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package kvstore;
+
+message GetRequest {
+  string key = 1;
+}
+
+message GetResponse {
+  string value = 1;
+  bool found = 2;
+}
+
+message PutRequest {
+  string key = 1;
+  string value = 2;
+}
+
+message PutResponse {
+  string old_value = 1;
+  bool old_value_found = 2;
+}
+
+service KVStore {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+}
