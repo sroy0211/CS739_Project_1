@@ -77,7 +77,7 @@ if __name__ == "__main__":
     parser.add_argument('key', help='The key for the GET/PUT operation')
     parser.add_argument('value', nargs='?', default='', help='The value for the PUT operation (optional for GET)')
     parser.add_argument('--server', default="localhost:50051", help='Server address (default: localhost:50051)')
-    parser.add_argument('--timeout', type=int, default=0, help='Timeout for the GET operation (in seconds)')
+    parser.add_argument('--timeout', type=int, default=0, help='Timeout for the GET operation to terminate in case of server failure/crash (in seconds)')
     parser.add_argument('--wait', type=int, default=0, help='Time to wait between PUT and GET operations (in seconds)')
 
     args = parser.parse_args()
