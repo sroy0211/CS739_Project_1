@@ -93,9 +93,11 @@ if __name__ == "__main__":
             if args.value:
                 status, old_value = client.kv739_put(args.key, args.value)
                 if status == 0:
-                    logging.info(f"Put operation successful. Old value: {old_value}")
+                    logging.info(f"Status = {status}. Put operation successful. Old value: {old_value}")
                 elif status == 1:
-                    logging.info("Put operation successful. No old value.")
+                    logging.info(f"Status = {status}. Put operation successful. No old value.")
+                elif status == -1:
+                    logging.error(f"Status = {status}. Put operation failed.")
 
                 # Introduce a wait before the GET operation
                 if args.wait > 0:
@@ -105,11 +107,11 @@ if __name__ == "__main__":
                 # Perform GET operation after the wait
                 status, value = client.kv739_get(args.key, args.timeout)
                 if status == 0:
-                    logging.info(f"Retrieved value for '{args.key}': {value}")
+                    logging.info(f"Status = {status}. Retrieved value for '{args.key}': {value}")
                 elif status == 1:
-                    logging.info(f"Key '{args.key}' not found.")
+                    logging.info(f"Status = {status}. Key '{args.key}' not found.")
                 elif status == -1:
-                    logging.error("GET operation failed.")
+                    logging.error(f"Status = {status}. GET operation failed.")
 
             else:
                 logging.error("PUT operation requires both key and value.")
@@ -118,11 +120,11 @@ if __name__ == "__main__":
         elif args.operation == 'get':
             status, value = client.kv739_get(args.key, args.timeout)
             if status == 0:
-                logging.info(f"Retrieved value for '{args.key}': {value}")
+                logging.info(f"Status = {status}.Retrieved value for '{args.key}': {value}")
             elif status == 1:
-                logging.info(f"Key '{args.key}' not found.")
+                logging.info(f"Status = {status}.Key '{args.key}' not found.")
             elif status == -1:
-                logging.error("GET operation failed.")
+                logging.error(f"Status = {status}.GET operation failed.")
 
         # Shutdown connection
         if client.kv739_shutdown() == 0:
