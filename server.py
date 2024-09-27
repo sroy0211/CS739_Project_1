@@ -5,8 +5,12 @@ import kvstore_pb2
 import kvstore_pb2_grpc
 import logging
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Set up logging to file
+logging.basicConfig(
+    filename='kvstore.log',  # Log file name
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # Define SQLite-based storage backend
 class KeyValueStore:
@@ -49,23 +53,53 @@ class KeyValueStore:
             logging.error(f"Error writing to database for key '{key}': {e}")
             return None, False
 
+# Restriction helper function
+def validate_key_value(key, value):
+    # Restrictions for keys:
+    if len(key) > 128 or any(char in key for char in ["[", "]"]):
+        return False, "Key must be a valid printable ASCII string, 128 or fewer bytes, and cannot contain '[' or ']'"
+
+    # Restrictions for values:
+    if len(value) > 2048 or any(char in value for char in ["[", "]"]):
+        return False, "Value must be a valid printable ASCII string, 2048 or fewer bytes, and cannot contain '[' or ']'"
+    
+    return True, None
+
 # Global store variable
 store = KeyValueStore()
 
 # Implement gRPC service
 class KVStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
     def Get(self, request, context):
+        # Validate the key
+        valid, error_message = validate_key_value(request.key, "")
+        if not valid:
+            logging.error(f"Get operation failed: {error_message}")
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(error_message)
+            return kvstore_pb2.GetResponse(value='', found=False)
+
+        # Proceed with the normal get operation
         value, found = store.get(request.key)  # Use the global store
         return kvstore_pb2.GetResponse(value=value if found else '', found=found)
 
     def Put(self, request, context):
+        # Validate the key and value
+        valid, error_message = validate_key_value(request.key, request.value)
+        if not valid:
+            logging.error(f"Put operation failed: {error_message}")
+            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
+            context.set_details(error_message)
+            return kvstore_pb2.PutResponse(old_value='', old_value_found=False)
+
+        # Proceed with the normal put operation
         old_value, old_value_found = store.put(request.key, request.value)  # Use the global store
         return kvstore_pb2.PutResponse(old_value=old_value if old_value_found else '', old_value_found=old_value_found)
 
 # Start gRPC server
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    kvstore_pb2_grpc.add_KVStoreServicer_to_server(KVStoreServicer(), server)  # No arguments needed now
+    kvstore_pb2_grpc.add_KVStoreServicer_to_server(KVStoreServicer(), server)
     server.add_insecure_port('[::]:50051')
     logging.info("Server started on port 50051.")
     server.start()
