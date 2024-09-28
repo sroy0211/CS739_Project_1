@@ -17,6 +17,8 @@ class KeyValueStore:
     def __init__(self, db_file='kvstore.db'):
         try:
             self.conn = sqlite3.connect(db_file, check_same_thread=False)
+            self.conn.execute("PRAGMA journal_mode=WAL;")  # Enable WAL mode for better concurrency
+            self.conn.execute("PRAGMA busy_timeout = 5000;")  # Wait up to 5 seconds for database locks
             self.conn.execute('''CREATE TABLE IF NOT EXISTS kvstore
                                  (key TEXT PRIMARY KEY, value TEXT)''')
             logging.info("Initialized KVStore")
@@ -40,16 +42,14 @@ class KeyValueStore:
         old_value, found = self.get(key)
         logging.info("Put KVStore for key: %s", key)
         try:
-            self.conn.execute("BEGIN")
-            if found:
-                self.conn.execute("UPDATE kvstore SET value=? WHERE key=?", (value, key))
-            else:
-                self.conn.execute("INSERT INTO kvstore (key, value) VALUES (?, ?)", (key, value))
-            self.conn.commit()
+            with self.conn:  # Automatically handles BEGIN, COMMIT, and ROLLBACK
+                if found:
+                    self.conn.execute("UPDATE kvstore SET value=? WHERE key=?", (value, key))
+                else:
+                    self.conn.execute("INSERT INTO kvstore (key, value) VALUES (?, ?)", (key, value))
             logging.info("Put operation successful for key: %s", key)
             return old_value, found
         except sqlite3.Error as e:
-            self.conn.rollback()
             logging.error(f"Error writing to database for key '{key}': {e}")
             return None, False
 
@@ -98,7 +98,7 @@ class KVStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
 
 # Start gRPC server
 def serve():
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=12))
     kvstore_pb2_grpc.add_KVStoreServicer_to_server(KVStoreServicer(), server)
     server.add_insecure_port('[::]:50051')
     logging.info("Server started on port 50051.")
