@@ -41,8 +41,8 @@ python3 client.py get <key> --server <server_address:50051> --timeout <timeout> 
 
 To run correctness tests with multiple clients, use:
 
-```
-bash python3 test.py --test_type correctness --num_clients <number_of_clients> --num_iterations <iterations_per_client> 
+```bash 
+python3 test.py --test_type correctness --num_clients <number_of_clients> --num_iterations <iterations_per_client> 
 ```
 
 ### Reliability Tests
