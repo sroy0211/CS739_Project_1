@@ -42,9 +42,13 @@ To run correctness tests with multiple clients, use:
 ### Reliability Tests
 
 To run reliability tests simulating server crashes:
+
 ```bash python3 test.py --test_type reliability --num_clients <number_of_clients> --simulate_crash ```
 
 ### Performance Tests
 To run performance tests with a hot/cold workload(use client-side cache):
+
 ```bash python3 test.py --test_type performance --duration <test_duration> --num_clients <number_of_clients> --use_cache```
+
+### Please refer to code for details command use.... 
 
