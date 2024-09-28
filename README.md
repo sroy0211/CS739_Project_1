@@ -23,11 +23,13 @@ The client supports both `PUT` and `GET` operations. To interact with the server
 
 ### PUT Operation
 
-```bash python3 client.py put <key> <value> --server <server_address:50051> --timeout <timeout> --use_cache
+ 
+```bash python3 client.py put <key> <value> --server <server_address:50051> --timeout <timeout> --use_cache```
+
 
 ### GET Operation
 
-```bash python3 client.py get <key> --server <server_address:50051> --timeout <timeout> --use_cache
+```bash python3 client.py get <key> --server <server_address:50051> --timeout <timeout> --use_cache ```
 
 ## Testing the System
 
@@ -35,14 +37,14 @@ The client supports both `PUT` and `GET` operations. To interact with the server
 
 To run correctness tests with multiple clients, use:
 
-```bash python3 test.py --test_type correctness --num_clients <number_of_clients> --num_iterations <iterations_per_client>
+```bash python3 test.py --test_type correctness --num_clients <number_of_clients> --num_iterations <iterations_per_client> ```
 
 ### Reliability Tests
 
 To run reliability tests simulating server crashes:
-```bash python3 test.py --test_type reliability --num_clients <number_of_clients> --simulate_crash
+```bash python3 test.py --test_type reliability --num_clients <number_of_clients> --simulate_crash ```
 
 ### Performance Tests
 To run performance tests with a hot/cold workload(use client-side cache):
-```bash python3 test.py --test_type performance --duration <test_duration> --num_clients <number_of_clients> --use_cache
+```bash python3 test.py --test_type performance --duration <test_duration> --num_clients <number_of_clients> --use_cache```
 
