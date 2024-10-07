@@ -17,13 +17,13 @@ class Cache:
 
     def get(self, key):
         if key in self.cache:
-            value, timestamp = self.cache[key]
+            value, timestamp = self.cache.pop(key)  # Remove the item
             if time.time() - timestamp < self.ttl:
+                self.cache[key] = (value, time.time()) 
                 logging.info(f"Cache hit for key: {key}")
                 return value
             else:
                 logging.info(f"Cache expired for key: {key}")
-                del self.cache[key]
         logging.info(f"Cache miss for key: {key}")
         return None
 
