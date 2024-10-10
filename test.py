@@ -249,7 +249,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_iterations', type=int, default=10, help='Number of iterations per client in correctness tests (default: 10)')
     parser.add_argument('--simulate_crash', action='store_true', help='Simulate server crashes (for reliability tests)')
     parser.add_argument('--cache_size', type=int, default=500, help='Cache size for the client (default: 500)')
-    parser.add_argument('--ttl', type=float, default=30, help='TTL for the client cache in seconds (default: 5)')
+    parser.add_argument('--ttl', type=float, default=5, help='TTL for the client cache in seconds (default: 5)')
     parser.add_argument('--timeout', type=int, default=5, help='Timeout for GET operations (default: 5 seconds)')
     parser.add_argument('--use_cache', action='store_true', help='Enable client-side cache')
     parser.add_argument('--log_level', default='INFO', help='Logging level (default: INFO)')
