@@ -2,6 +2,11 @@ syntax = "proto3";
 
 package kvstore;
 
+enum ReplicationMode {
+  QUORUM = 0;
+  RAFT = 1;
+}
+
 message GetRequest {
   string key = 1;
 }
@@ -9,19 +14,83 @@ message GetRequest {
 message GetResponse {
   string value = 1;
   bool found = 2;
+  uint64 version = 3;  // Added for conflict resolution
 }
 
 message PutRequest {
   string key = 1;
   string value = 2;
+  uint64 version = 3;  // Added versioning for conflict resolution
 }
 
 message PutResponse {
   string old_value = 1;
   bool old_value_found = 2;
+  uint64 version = 3;  // Return version for the key
+}
+
+message DeleteRequest {
+  string key = 1;
+}
+
+message DeleteResponse {
+  bool success = 1;
+}
+
+message BatchGetRequest {
+  repeated string keys = 1;
+}
+
+message BatchGetResponse {
+  map<string, GetResponse> results = 1;
+}
+
+message BatchPutRequest {
+  map<string, string> key_values = 1;
+}
+
+message BatchPutResponse {
+  map<string, PutResponse> results = 1;
+}
+
+message SetReplicationModeRequest {
+  ReplicationMode mode = 1;
+}
+
+message SetReplicationModeResponse {
+  bool success = 1;
+}
+
+// New message types for the Die functionality
+message DieRequest {
+  bool clean = 1; // Added clean field to indicate the shutdown type
+  string message = 2; // Optional message to send during die
+}
+
+message DieResponse {
+  bool success = 1;
+  string message = 2; // Optional message on die
+}
+
+// New message types for the Ping functionality
+message PingRequest {
+}
+
+message PingResponse {
+  bool is_alive = 1; // Indicates if the server is alive
 }
 
 service KVStore {
   rpc Get(GetRequest) returns (GetResponse);
   rpc Put(PutRequest) returns (PutResponse);
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  rpc BatchGet(BatchGetRequest) returns (BatchGetResponse);
+  rpc BatchPut(BatchPutRequest) returns (BatchPutResponse);
+  rpc SetReplicationMode(SetReplicationModeRequest) returns (SetReplicationModeResponse);  // To dynamically switch replication modes
+  
+  // New Die RPC method
+  rpc Die(DieRequest) returns (DieResponse);
+  
+  // New Ping RPC method
+  rpc Ping(PingRequest) returns (PingResponse); // Add this line
 }
