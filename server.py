@@ -6,6 +6,8 @@ import kvstore_pb2_grpc
 import logging
 import time
 import threading
+import csv
+import os
 
 # Set up logging to file
 logging.basicConfig(
@@ -16,7 +18,7 @@ logging.basicConfig(
 
 # Define SQLite-based storage backend
 class KeyValueStore:
-    def __init__(self, db_file='kvstore.db'):  # Corrected __init method
+    def __init__(self, db_file='kvstore.db'):
         try:
             self.conn = sqlite3.connect(db_file, check_same_thread=False)
             self.conn.execute("PRAGMA journal_mode=WAL;")
@@ -26,6 +28,7 @@ class KeyValueStore:
             logging.info("Initialized KVStore")
         except sqlite3.Error as e:
             logging.error(f"Database connection error: {e}")
+            raise
 
     def get(self, key):
         try:
@@ -63,12 +66,17 @@ class KeyValueStore:
                 response = stub.Put(kvstore_pb2.PutRequest(key=key, value=value))
                 if response.old_value_found:
                     logging.info(f"Successfully replicated to {replica} for key: {key}")
+                    break
                 else:
                     logging.error(f"Replication to {replica} failed for key: {key}")
                     break  # Stop replication if one fails
             except grpc.RpcError as e:
                 logging.error(f"Failed to replicate to {replica}: {e}")
                 break  # Stop on error
+            
+    def Ping(self, request, context):
+        logging.info("Ping received.")
+        return kvstore_pb2.PingResponse(is_alive=True)
 
 def validate_key_value(key, value):
     if len(key) > 128 or any(char in key for char in ["[", "]"]):
@@ -81,7 +89,7 @@ def validate_key_value(key, value):
 store = KeyValueStore()
 
 class KVStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
-    def __init__(self, replicas):  # Corrected __init method
+    def __init__(self, replicas):
         self.replicas = replicas
 
     def Get(self, request, context):
@@ -106,42 +114,71 @@ class KVStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         old_value, old_value_found = store.put(request.key, request.value)
         
         # Replicate to other servers in the chain
-        if self.replicas:
-            store.replicate(request.key, request.value, self.replicas)
+        # if self.replicas:
+            # store.replicate(request.key, request.value, self.replicas)
 
         return kvstore_pb2.PutResponse(old_value=old_value if old_value_found else '', old_value_found=old_value_found)
     
-    def Ping(self, request, context):  # Add this method
+    def Die(self, request, context):
+        logging.info(f"Received termination request for server: {request.server_name}. Clean: {request.clean}")
+        
+        if request.clean:
+            # If clean termination is requested, perform any necessary cleanup here
+            logging.info("Performing cleanup before termination.")
+            # e.g., save state, close connections, etc.
+
+        # Shut down the server
+        logging.info("Shutting down the server.")
+        context.set_code(grpc.StatusCode.OK)
+        context.set_details("Server is shutting down.")
+        return kvstore_pb2.DieResponse(success=True)
+    
+    def Ping(self, request, context):
         logging.info("Ping received, server is alive.")
-        return kvstore_pb2.PingResponse(is_alive=True)  # Always return true
+        return kvstore_pb2.PingResponse(is_alive=True)
 
 def serve(port, replicas):
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=12))
-    
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     kvstore_pb2_grpc.add_KVStoreServicer_to_server(KVStoreServicer(replicas), server)
-    
     server.add_insecure_port(f'[::]:{port}')
-    logging.info(f"Server started on port {port}.")
     server.start()
-    server.wait_for_termination()
+    try:
+        while True:
+            time.sleep(86400)  # Keep the server running
+    except KeyboardInterrupt:
+        server.stop(0)  # This will stop the server gracefully
 
-if __name__ == '__main__':  # Corrected __name_ check
-    # Define replicas for all servers
-    replicas_for_server1 = ["localhost:50052", "localhost:50053"]
-    replicas_for_server2 = ["localhost:50051", "localhost:50053"]
-    replicas_for_server3 = ["localhost:50051", "localhost:50052"]
+def create_config_file(filename='server_config.txt', num_servers=100):
+    """Create a configuration file for server instances."""
+    with open(filename, mode='w') as file:
+        for i in range(num_servers):
+            hostname = "localhost"
+            port = 50000 + i  # Incrementing port number for each server
+            file.write(f"{hostname}:{port}\n")  # Writing in format hostname:port
 
-    # Create threads for each server
-    thread1 = threading.Thread(target=serve, args=(50051, replicas_for_server1))
-    thread2 = threading.Thread(target=serve, args=(50052, replicas_for_server2))
-    thread3 = threading.Thread(target=serve, args=(50053, replicas_for_server3))
+def read_config_file(filename='server_config.txt'):
+    """Read server configuration from a TXT file."""
+    servers = []
+    with open(filename, mode='r') as file:
+        for line in file:
+            hostname, port = line.strip().split(':')
+            servers.append((hostname, int(port)))
+    return servers
+
+if __name__ == '__main__':
+    # Create a configuration file with 100 server instances
+    create_config_file()
+
+    # Read the server configurations
+    server_configs = read_config_file()
     
-    # Start the threads
-    thread1.start()
-    thread2.start()
-    thread3.start()
+    # Create threads for each server
+    threads = []
+    for hostname, port in server_configs:
+        thread = threading.Thread(target=serve, args=(port, [conf[1] for conf in server_configs if conf != (hostname, port)]))
+        threads.append(thread)
+        thread.start()
     
     # Optionally, join threads to wait for them to finish
-    thread1.join()
-    thread2.join()
-    thread3.join()
+    for thread in threads:
+        thread.join()
