@@ -148,12 +148,14 @@ def serve(port, replicas):
     kvstore_pb2_grpc.add_KVStoreServicer_to_server(KVStoreServicer(server, replicas), server)
     server.add_insecure_port(f'[::]:{port}')
     server.start()
+    logging.info(f"Server started on port {port}")
     try:
         while True:
             time.sleep(86400)  # Keep the server running
     except KeyboardInterrupt:
         logging.info("Shutting down the server gracefully.")
         server.stop(0)  # This will stop the server gracefully
+        logging.info(f"Server on port {port} shut down successfully.")
 
 
 
