@@ -40,45 +40,51 @@ class KV739Client:
     def __init__(self, cache_size=100, ttl=0.2, use_cache=True):  # Corrected constructor
         self.stubs = []  # List to hold multiple stubs
         self.channels = []  # List to hold channels
+        self.current_stub = None  # Track the current active stub
         self.use_cache = use_cache
         self.cache = Cache(max_size=cache_size, ttl=ttl) if use_cache else None
 
+    def kv739_init_from_file(self, config_file):
+        """Initialize the client by reading service instances from a config file."""
+        try:
+            with open(config_file, 'r') as f:
+                lines = f.readlines()
+                server_ports = [line.strip() for line in lines if line.strip()]
+
+            # Call the existing initialization logic with parsed ports
+            return self.kv739_init(server_ports)
+
+        except FileNotFoundError:
+            logging.error(f"Config file '{config_file}' not found.")
+            return -1
+        except Exception as e:
+            logging.error(f"Error reading config file '{config_file}': {e}")
+            return -1
+
     def kv739_init(self, server_ports):
-        for port in server_ports:
+        """Initialize connections to the provided list of server ports."""
+        for endpoint in server_ports:
             try:
-                host = 'localhost'
+                host, port = endpoint.split(':')
                 channel = grpc.insecure_channel(f'{host}:{port}')
                 stub = kvstore_pb2_grpc.KVStoreStub(channel)
-                logging.info("Initialized kvclient and connected to %s", f'{host}:{port}')
+                logging.info("Initialized kvclient and connected to %s", endpoint)
+
                 # Try to ping the server
                 stub.Ping(kvstore_pb2.PingRequest())
-                logging.info("Successfully connected to server on port %s", port)
-                self.stubs.append(stub)  # Add stub to the list
+                logging.info("Successfully connected to server on %s", endpoint)
+
+                self.current_stub = stub  # Set the current stub to the first available one
                 self.channels.append(channel)  # Store the channel
+                return 0  # Connection successful
+
             except grpc.RpcError as e:
-                logging.error(f"Failed to connect to server on port {port}: {e}")
+                logging.error(f"Failed to connect to server on {endpoint}: {e}")
             except Exception as e:
-                logging.error(f"Error during connection setup on port {port}: {e}")
+                logging.error(f"Error during connection setup on {endpoint}: {e}")
 
-        if not self.stubs:
-            logging.error("Failed to connect to any server ports.")
-            return -1
-        return 0
-
-    def kv739_shutdown(self):
-        logging.info("Starting shutdown process.")
-        for channel in self.channels:
-            try:
-                channel.close()  # Close the channel for each stub
-                logging.info("Closed channel for stub connected to server.")
-            except Exception as e:
-                logging.error(f"Error during shutdown: {e}")
-
-        # Delay to ensure resources are released
-        time.sleep(1)
-
-        logging.info("Shutdown kvclient completed.")
-        return 0
+        logging.error("Failed to connect to any server ports.")
+        return -1
 
     def kv739_get(self, key, timeout):
         if self.use_cache and self.cache:
@@ -86,10 +92,9 @@ class KV739Client:
             if cached_value is not None:
                 return 0, cached_value
 
-        # Loop through available stubs to attempt to get the value
-        for stub in self.stubs:
+        if self.current_stub:  # Check if we have a valid stub
             try:
-                response = stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
+                response = self.current_stub.Get(kvstore_pb2.GetRequest(key=key))
                 if response.found:
                     logging.info("Retrieved value for key '%s': %s", key, response.value)
                     if self.use_cache and self.cache:
@@ -99,67 +104,102 @@ class KV739Client:
                     logging.info("Key '%s' not found", key)
                     return 1, ''
             except grpc.RpcError as e:
-                if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
-                    logging.error("GET operation timed out after %s seconds", timeout)
-                else:
-                    logging.error(f"Error during GET operation: {e}")
-                continue  # Attempt with the next stub
-        return -1, ''
+                logging.error(f"Error during GET operation: {e}")
+                self.current_stub = None  # Mark current stub as invalid
+                return self.kv739_get(key, timeout)  # Retry to find an alternative server
+        return -1, ''  # No available stub
 
-    def kv739_put(self, key, value):
-        for stub in self.stubs:
+    def kv739_put(self, key, value, timeout):
+        if self.current_stub:  # Check if we have a valid stub
             try:
-                response = stub.Put(kvstore_pb2.PutRequest(key=key, value=value))
+                response = self.current_stub.Put(
+                    kvstore_pb2.PutRequest(key=key, value=value), timeout=timeout
+                )
                 if response.old_value_found:
                     logging.info("Put operation successful for key '%s'. Old value: %s", key, response.old_value)
-                    return 0, response.old_value  # Return a tuple with status and old value
+                    return 0, response.old_value
                 else:
                     logging.info("Put operation successful for key '%s'. No old value found", key)
-                    return 0, ''  # Return a tuple with status and empty string for old value
+                    return 0, ''
             except grpc.RpcError as e:
                 logging.error(f"Error during PUT operation: {e}")
-                continue  # Attempt with the next stub
-        return -1, ''  # Return a tuple on error
+                self.current_stub = None  # Mark current stub as invalid
+                return self.kv739_put(key, value, timeout)  # Retry to find an alternative server
+        return -1, ''  # No available stub
+
+    def kv739_shutdown(self):
+        logging.info("Starting shutdown process.")
+        if self.use_cache and self.cache:
+            self.cache.clear()
+
+        for channel in self.channels:
+            try:
+                channel.close()
+                logging.info("Closed channel for stub connected to server.")
+            except Exception as e:
+                logging.error(f"Error during shutdown: {e}")
+
+        time.sleep(1)  # Delay to ensure resources are released
+        logging.info("Shutdown kvclient completed.")
+        return 0
+    
+    def kv739_die(self, server_name, clean):
+        """Tell the server to terminate itself."""
+        if self.current_stub:  # Check if we have a valid stub
+            try:
+                response = self.current_stub.Die(
+                    kvstore_pb2.DieRequest(server_name=server_name, clean=clean)
+                )
+                if response.success:
+                    logging.info("Successfully contacted server %s to initiate self-destruction.", server_name)
+                    return 0  # Successful termination request
+                else:
+                    logging.error("Failed to initiate self-destruction on server %s.", server_name)
+                    return -1  # Failure in the response
+            except grpc.RpcError as e:
+                logging.error(f"Error during DIE operation: {e}")
+                self.current_stub = None  # Mark current stub as invalid
+                return -1  # No available stub
+        logging.error("No available stub to contact for self-destruction.")
+        return -1  # No available stub
+    
 
 # Command-line argument parsing
-if __name__ == "__main__":  # Corrected name check
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='KV739 Client Operations')
-    parser.add_argument('operation', choices=['get', 'put'], help='Specify whether to get or put')
-    parser.add_argument('key', help='The key for the GET/PUT operation')
+    parser.add_argument('operation', choices=['get', 'put', 'die'], help='Specify the operation (get, put, die)')
+    parser.add_argument('key', help='The key for the GET/PUT operation or server name for DIE')
     parser.add_argument('value', nargs='?', default='', help='The value for the PUT operation (optional for GET)')
-    parser.add_argument('--ports', type=int, nargs='+', default=[50051, 50052, 50053], help='List of server ports to try (default: 50051 50052 50053)')
+    parser.add_argument('--clean', type=int, choices=[0, 1], help='Clean termination (1 for clean, 0 for immediate)')
+    parser.add_argument('--config_file', help='Path to config file with server instances')
     parser.add_argument('--timeout', type=int, default=5, help='Timeout for the GET operation (default: 5 seconds)')
     parser.add_argument('--cache_size', type=int, default=100, help='Maximum size of the cache (default: 100 entries)')
-    parser.add_argument('--ttl', type=float, default=0.2, help='Time-to-Live for cache entries in seconds (default: 0.2 seconds)')
+    parser.add_argument('--ttl', type=float, default=0.2, help='Time-to-Live for cache entries in seconds (default: 0.2)')
     parser.add_argument('--use_cache', action='store_true', help='Enable client-side cache')
 
     args = parser.parse_args()
 
     client = KV739Client(cache_size=args.cache_size, ttl=args.ttl, use_cache=args.use_cache)
 
-    if client.kv739_init(args.ports) == 0:
-        logging.info("Connected to server.")
+    if args.config_file:
+        status = client.kv739_init_from_file(args.config_file)
+    else:
+        logging.error("Config file is required.")
+        exit(1)
 
+    if status == 0:
+        logging.info("Connected to server.")
         if args.operation == 'put':
             if args.value:
-                status, old_value = client.kv739_put(args.key, args.value)
-                if status == 0:
-                    logging.info(f"Status = {status}. Put operation successful. Old value: {old_value}")
-                elif status == 1:
-                    logging.info(f"Status = {status}. Put operation successful. No old value.")
-                elif status == -1:
-                    logging.error(f"Status = {status}. Put operation failed.")
+                client.kv739_put(args.key, args.value, args.timeout)
             else:
                 logging.error("PUT operation requires both key and value.")
-
         elif args.operation == 'get':
-            status, value = client.kv739_get(args.key, args.timeout)
-            if status == 0:
-                logging.info(f"Status = {status}. Retrieved value for '{args.key}': {value}")
-            elif status == 1:
-                logging.info(f"Status = {status}. Key '{args.key}' not found.")
-            elif status == -1:
-                logging.error(f"Status = {status}. GET operation failed.")
+            client.kv739_get(args.key, args.timeout)
+        elif args.operation == 'die':
+            if args.clean is not None:
+                client.kv739_die(args.key, args.clean)
+            else:
+                logging.error("DIE operation requires --clean argument (0 or 1).")
 
-        if client.kv739_shutdown() == 0:
-            logging.info("Connection closed.")
+        client.kv739_shutdown()
