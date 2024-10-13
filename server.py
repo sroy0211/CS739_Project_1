@@ -89,7 +89,8 @@ def validate_key_value(key, value):
 store = KeyValueStore()
 
 class KVStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
-    def __init__(self, replicas):
+    def __init__(self, server, replicas):
+        self.server = server  # Store the server reference
         self.replicas = replicas
 
     def Get(self, request, context):
@@ -125,10 +126,15 @@ class KVStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         if request.clean:
             # If clean termination is requested, perform any necessary cleanup here
             logging.info("Performing cleanup before termination.")
+            store.close()  # Close the database connection
             # e.g., save state, close connections, etc.
 
         # Shut down the server
-        logging.info("Shutting down the server.")
+        if hasattr(self, 'server'):
+            logging.info("Shutting down the server.")
+            self.server.stop(0)  # This will stop the server gracefully
+            logging.info("Server shut down successfully.")
+
         context.set_code(grpc.StatusCode.OK)
         context.set_details("Server is shutting down.")
         return kvstore_pb2.DieResponse(success=True)
@@ -139,14 +145,17 @@ class KVStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
 
 def serve(port, replicas):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    kvstore_pb2_grpc.add_KVStoreServicer_to_server(KVStoreServicer(replicas), server)
+    kvstore_pb2_grpc.add_KVStoreServicer_to_server(KVStoreServicer(server, replicas), server)
     server.add_insecure_port(f'[::]:{port}')
     server.start()
     try:
         while True:
             time.sleep(86400)  # Keep the server running
     except KeyboardInterrupt:
+        logging.info("Shutting down the server gracefully.")
         server.stop(0)  # This will stop the server gracefully
+
+
 
 def create_config_file(filename='server_config.txt', num_servers=100):
     """Create a configuration file for server instances."""
