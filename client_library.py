@@ -152,6 +152,7 @@ class KV739Client:
                 )
                 if response.success:
                     logging.info("Successfully contacted server %s to initiate self-destruction.", server_name)
+                    time.sleep(1)  # Adjust the sleep duration as needed
                     return 0  # Successful termination request
                 else:
                     logging.error("Failed to initiate self-destruction on server %s.", server_name)
@@ -160,8 +161,11 @@ class KV739Client:
                 logging.error(f"Error during DIE operation: {e}")
                 self.current_stub = None  # Mark current stub as invalid
                 return -1  # No available stub
-        logging.error("No available stub to contact for self-destruction.")
-        return -1  # No available stub
+        else:
+            logging.error("No available stub to contact for self-destruction.")
+            return -1  # No available stub
+
+            
     
 
 # Command-line argument parsing
@@ -198,7 +202,11 @@ if __name__ == "__main__":
             client.kv739_get(args.key, args.timeout)
         elif args.operation == 'die':
             if args.clean is not None:
-                client.kv739_die(args.key, args.clean)
+                response = client.kv739_die(args.key, args.clean)
+                if response==0:  # Assuming response object has a 'success' field
+                    logging.info("Successfully contacted server %s to initiate self-destruction.", args.key)
+                else:
+                    logging.error("Failed to initiate self-destruction on server %s.", args.key)
             else:
                 logging.error("DIE operation requires --clean argument (0 or 1).")
 
