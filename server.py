@@ -17,7 +17,7 @@ DB_PATH = "./db_files/"
 
 # Set up logging to file
 logging.basicConfig(
-    filename=f'{DB_PATH}/kvstore.log',
+    filename='kvstore.log',
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
