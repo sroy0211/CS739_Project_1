@@ -96,54 +96,119 @@ class KV739Client:
 
         logging.error("Failed to connect to any server ports.")
         return -1
+    
+
+    def get_tail_stub(self):
+        """Fetches the current tail address from the master and creates a gRPC stub."""
+        try:
+            # Request the current tail address from the master
+            response = self.master_stub.GetTailAddress(kvstore_pb2.Empty())
+            if response.success:
+                tail_address = response.tail_address
+                host, port = tail_address.split(':')
+                logging.info(f"Retrieved tail address: {tail_address}")
+
+                # Create and return a gRPC stub for the tail server
+                tail_channel = grpc.insecure_channel(f'{host}:{port}')
+                return kvstore_pb2_grpc.KVStoreStub(tail_channel)
+            else:
+                logging.error("Master failed to return a valid tail address.")
+                return None
+        except grpc.RpcError as e:
+            logging.error(f"Error during GetTailAddress call: {e}")
+            return None  # Return None if an error occurs
 
     def kv739_get(self, key, timeout):
-        """Contacts the master once, get tail address and then contacts the tail directly via stub.
-            If tail is down; contact the master again to get the new tail.
-        """
+        """Contacts the master to get the tail address, 
+        then communicates with the tail. If the tail fails, 
+        contacts the master again to get a new tail."""
+
+        # Step 1: Check the cache first
         if self.use_cache and self.cache:
             cached_value = self.cache.get(key)
             if cached_value is not None:
-                return 0, cached_value
+                return 0, cached_value  # Cache hit
 
-        if self.current_stub:  # Check if we have a valid stub
-            try:
-                response = self.current_stub.Get(kvstore_pb2.GetRequest(key=key))
-                if response.found:
-                    logging.info("Retrieved value for key '%s': %s", key, response.value)
-                    if self.use_cache and self.cache:
-                        self.cache.put(key, response.value)
-                    return 0, response.value
-                else:
-                    logging.info("Key '%s' not found", key)
-                    return 1, ''
-            except grpc.RpcError as e:
-                logging.error(f"Error during GET operation: {e}")
-                self.current_stub = None  # Mark current stub as invalid
-                return self.kv739_get(key, timeout)  # Retry to find an alternative server
-        return -1  # No available stub
+        # Step 2: Retrieve a valid tail stub
+        if not self.current_stub:  # If no current tail stub, get one from master
+            self.current_stub = self._get_tail_stub()
+            if not self.current_stub:
+                logging.error("Failed to retrieve a valid tail stub.")
+                return -1  # Could not proceed without a valid tail
+
+        # Step 3: Attempt to GET from the tail server
+        try:
+            response = self.current_stub.Get(
+                kvstore_pb2.GetRequest(key=key), timeout=timeout
+            )
+            if response.found:
+                logging.info("Retrieved value for key '%s': %s", key, response.value)
+                if self.use_cache and self.cache:
+                    self.cache.put(key, response.value)  # Cache the result
+                return 0, response.value  # Return the found value
+            else:
+                logging.info("Key '%s' not found", key)
+                return 1, ''  # Key not found
+
+        except grpc.RpcError as e:
+            logging.error(f"Error during GET operation: {e}")
+
+            # Step 4: If the tail fails, retry by fetching a new tail address
+            logging.info("Retrying GET by contacting master for a new tail address...")
+            self.current_stub = self.get_tail_stub()  # Get a new tail stub
+            if self.current_stub:  # Retry the GET operation with the new stub
+                return self.kv739_get(key, timeout)
+            else:
+                logging.error("Failed to get a new tail stub.")
+                return -1  # Return failure if no new stub is available
+
+        # return -1  # Return failure if all attempts fail
+
+    
 
     def kv739_put(self, key, value, timeout):
         """
-            Contacts the master once, get head address and then establish a stub with the tail.
-            If tails is down; contact the master to get the new tail.
+        Contacts the master once to get the tail address and then performs a PUT operation using the tail.
+        If the tail is down, contacts the master again to get a new tail and retries the operation.
         """
-        if self.current_stub:  # Check if we have a valid stub
-            try:
-                response = self.current_stub.Put(
-                    kvstore_pb2.PutRequest(key=key, value=value), timeout=timeout
+
+        # Step 1: Ensure we have a valid tail stub; if not, get it from the master.
+        if not self.current_stub:
+            self.current_stub = self._get_tail_stub()
+            if not self.current_stub:
+                logging.error("Failed to retrieve a valid tail stub.")
+                return -1, ''  # Return failure if no tail stub is available.
+
+        # Step 2: Attempt the PUT operation with the current tail stub.
+        try:
+            response = self.current_stub.Put(
+                kvstore_pb2.PutRequest(key=key, value=value), timeout=timeout
+            )
+            if response.old_value_found:
+                logging.info(
+                    "Put operation successful for key '%s'. Old value: %s",
+                    key, response.old_value
                 )
-                if response.old_value_found:
-                    logging.info("Put operation successful for key '%s'. Old value: %s", key, response.old_value)
-                    return 0, response.old_value
-                else:
-                    logging.info("Put operation successful for key '%s'. No old value found", key)
-                    return 0, ''
-            except grpc.RpcError as e:
-                logging.error(f"Error during PUT operation: {e}")
-                self.current_stub = None  # Mark current stub as invalid
-                return self.kv739_put(key, value, timeout)  # Retry to find an alternative server
-        return -1, ''  # No available stub
+                return 0, response.old_value  # Return old value if it existed.
+            else:
+                logging.info("Put operation successful for key '%s'. No old value found", key)
+                return 0, ''  # No previous value for the key.
+
+        except grpc.RpcError as e:
+            logging.error(f"Error during PUT operation: {e}")
+            self.current_stub = None  # Mark current stub as invalid.
+
+            # Step 3: Retry by fetching a new tail stub from the master.
+            logging.info("Retrying PUT by contacting master for a new tail address...")
+            self.current_stub = self.get_tail_stub()
+
+            if self.current_stub:  # If a new tail stub is obtained, retry the PUT operation.
+                return self.kv739_put(key, value, timeout)
+
+            logging.error("Failed to get a new tail stub for PUT operation.")
+            return -1, ''  # Return failure if no new stub is available.
+        # return -1, ''  # Return failure if all attempts fail.
+
 
     def kv739_shutdown(self):
         logging.info("Starting shutdown process.")
@@ -161,27 +226,46 @@ class KV739Client:
         logging.info("Shutdown kvclient completed.")
         return 0
     
-    def kv739_die(self, server_name, clean=False):
-        """Tell the a replica to terminate itself. 
-            For now, just testing killing the head some number of times.        
+    def kv739_die(self, server_names, clean=False):
         """
-        if self.current_stub:  # Check if we have a valid stub
+        Sends termination requests to one or multiple servers. 
+        If the master or tail node is terminated, the server handles reassignment automatically.
+
+        Args:
+            server_names (list or str): A single server name or a list of server names to terminate.
+            clean (bool): If True, perform a clean shutdown. Defaults to False.
+
+        Returns:
+            int: 0 if all termination requests are successful, -1 if any failure occurs.
+        """
+        # Ensure server_names is treated as a list, even if a single server name is provided.
+        if isinstance(server_names, str):
+            server_names = [server_names]
+
+        success = True  # Track overall success.
+
+        for server_name in server_names:
             try:
                 response = self.current_stub.Die(
                     kvstore_pb2.DieRequest(server_name=server_name, clean=clean)
                 )
                 if response.success:
-                    logging.info("Successfully contacted server %s to initiate self-destruction.", server_name)
-                    return 0  # Successful termination request
+                    logging.info("Successfully terminated server: %s", server_name)
                 else:
-                    logging.error("Failed to initiate self-destruction on server %s.", server_name)
-                    return -1  # Failure in the response
+                    logging.error("Failed to terminate server: %s", server_name)
+                    success = False  # Mark failure.
             except grpc.RpcError as e:
-                logging.error(f"Error during DIE operation: {e}")
-                self.current_stub = None  # Mark current stub as invalid
-                return -1  # No available stub
-        logging.error("No available stub to contact for self-destruction.")
-        return -1  # No available stub
+                logging.error(f"Error during DIE operation on {server_name}: {e}")
+                self.current_stub = None  # Mark current stub as invalid.
+                success = False  # Mark failure.
+
+        # Acknowledge the result to the client.
+        if success:
+            logging.info("All termination requests completed successfully.")
+            return 0  # All operations succeeded.
+        else:
+            logging.error("One or more termination requests failed.")
+            return -1  # At least one operation failed.
     
 
 # Command-line argument parsing
