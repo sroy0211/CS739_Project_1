@@ -77,7 +77,7 @@ message PingRequest {
 }
 
 message PingResponse {
-  bool is_alive = 1; // Indicates if the server is alive
+  bool is_alive = 1; // Indicates if the master is alive
 }
 
 service KVStore {

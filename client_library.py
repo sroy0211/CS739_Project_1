@@ -38,31 +38,42 @@ class Cache:
 
 class KV739Client:
     def __init__(self, cache_size=100, ttl=0.2, use_cache=True):  # Corrected constructor
-        self.stubs = []  # List to hold multiple stubs
         self.channels = []  # List to hold channels
-        self.current_stub = None  # Track the current active stub
         self.use_cache = use_cache
         self.cache = Cache(max_size=cache_size, ttl=ttl) if use_cache else None
+        self.head_stub # write to the head of the chain
+        self.tail_stub # read from the tail of the chain
+        
+    # def kv739_init_from_file(self, config_file):
+    #     """Initialize the client by reading service instances from a config file."""
+    #     try:
+    #         with open(config_file, 'r') as f:
+    #             lines = f.readlines()
+    #             server_ports = [line.strip() for line in lines if line.strip()]
 
-    def kv739_init_from_file(self, config_file):
-        """Initialize the client by reading service instances from a config file."""
+    #         # Call the existing initialization logic with parsed ports
+    #         return self.kv739_init(server_ports)
+
+    #     except FileNotFoundError:
+    #         logging.error(f"Config file '{config_file}' not found.")
+    #         return -1
+    #     except Exception as e:
+    #         logging.error(f"Error reading config file '{config_file}': {e}")
+    #         return -1
+
+    def kv739_init(self, config_file):
+        """Initialize connections to the provided list of server ports."""
         try:
             with open(config_file, 'r') as f:
                 lines = f.readlines()
                 server_ports = [line.strip() for line in lines if line.strip()]
-
-            # Call the existing initialization logic with parsed ports
-            return self.kv739_init(server_ports)
-
         except FileNotFoundError:
             logging.error(f"Config file '{config_file}' not found.")
             return -1
         except Exception as e:
             logging.error(f"Error reading config file '{config_file}': {e}")
             return -1
-
-    def kv739_init(self, server_ports):
-        """Initialize connections to the provided list of server ports."""
+        
         for endpoint in server_ports:
             try:
                 host, port = endpoint.split(':')
@@ -87,6 +98,9 @@ class KV739Client:
         return -1
 
     def kv739_get(self, key, timeout):
+        """Contacts the master once, get tail address and then contacts the tail directly via stub.
+            If tail is down; contact the master again to get the new tail.
+        """
         if self.use_cache and self.cache:
             cached_value = self.cache.get(key)
             if cached_value is not None:
@@ -107,9 +121,13 @@ class KV739Client:
                 logging.error(f"Error during GET operation: {e}")
                 self.current_stub = None  # Mark current stub as invalid
                 return self.kv739_get(key, timeout)  # Retry to find an alternative server
-        return -1, ''  # No available stub
+        return -1  # No available stub
 
     def kv739_put(self, key, value, timeout):
+        """
+            Contacts the master once, get head address and then establish a stub with the tail.
+            If tails is down; contact the master to get the new tail.
+        """
         if self.current_stub:  # Check if we have a valid stub
             try:
                 response = self.current_stub.Put(
@@ -143,8 +161,10 @@ class KV739Client:
         logging.info("Shutdown kvclient completed.")
         return 0
     
-    def kv739_die(self, server_name, clean):
-        """Tell the server to terminate itself."""
+    def kv739_die(self, server_name, clean=False):
+        """Tell the a replica to terminate itself. 
+            For now, just testing killing the head some number of times.        
+        """
         if self.current_stub:  # Check if we have a valid stub
             try:
                 response = self.current_stub.Die(
@@ -152,7 +172,6 @@ class KV739Client:
                 )
                 if response.success:
                     logging.info("Successfully contacted server %s to initiate self-destruction.", server_name)
-                    time.sleep(1)  # Adjust the sleep duration as needed
                     return 0  # Successful termination request
                 else:
                     logging.error("Failed to initiate self-destruction on server %s.", server_name)
@@ -161,21 +180,18 @@ class KV739Client:
                 logging.error(f"Error during DIE operation: {e}")
                 self.current_stub = None  # Mark current stub as invalid
                 return -1  # No available stub
-        else:
-            logging.error("No available stub to contact for self-destruction.")
-            return -1  # No available stub
-
-            
+        logging.error("No available stub to contact for self-destruction.")
+        return -1  # No available stub
     
 
 # Command-line argument parsing
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='KV739 Client Operations')
     parser.add_argument('operation', choices=['get', 'put', 'die'], help='Specify the operation (get, put, die)')
-    parser.add_argument('key', help='The key for the GET/PUT operation or server name for DIE')
+    parser.add_argument('key', help='The key for the GET/PUT operation or the server port for DIE')
     parser.add_argument('value', nargs='?', default='', help='The value for the PUT operation (optional for GET)')
     parser.add_argument('--clean', type=int, choices=[0, 1], help='Clean termination (1 for clean, 0 for immediate)')
-    parser.add_argument('--config_file', help='Path to config file with server instances')
+    parser.add_argument('--config_file', type=str, default="server_config.txt", help='Path to config file with server instances')
     parser.add_argument('--timeout', type=int, default=5, help='Timeout for the GET operation (default: 5 seconds)')
     parser.add_argument('--cache_size', type=int, default=100, help='Maximum size of the cache (default: 100 entries)')
     parser.add_argument('--ttl', type=float, default=0.2, help='Time-to-Live for cache entries in seconds (default: 0.2)')
@@ -202,11 +218,7 @@ if __name__ == "__main__":
             client.kv739_get(args.key, args.timeout)
         elif args.operation == 'die':
             if args.clean is not None:
-                response = client.kv739_die(args.key, args.clean)
-                if response==0:  # Assuming response object has a 'success' field
-                    logging.info("Successfully contacted server %s to initiate self-destruction.", args.key)
-                else:
-                    logging.error("Failed to initiate self-destruction on server %s.", args.key)
+                client.kv739_die(args.key, args.clean)
             else:
                 logging.error("DIE operation requires --clean argument (0 or 1).")
 

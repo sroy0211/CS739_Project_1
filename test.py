@@ -253,6 +253,8 @@ if __name__ == '__main__':
     parser.add_argument('--timeout', type=int, default=5, help='Timeout for GET operations (default: 5 seconds)')
     parser.add_argument('--use_cache', action='store_true', help='Enable client-side cache')
     parser.add_argument('--log_level', default='INFO', help='Logging level (default: INFO)')
+    parser.add_argument('--rw_ratio', type=float, default=0.5, 
+                        help='Read-write request ratio for performance tests. Chain replication is good with pipelined reads')
 
     args = parser.parse_args()
 
