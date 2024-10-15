@@ -37,29 +37,13 @@ class Cache:
         self.cache.clear()
 
 class KV739Client:
-    def __init__(self, cache_size=100, ttl=0.2, use_cache=True):  # Corrected constructor
+    def __init__(self, port, cache_size=100, ttl=0.2, use_cache=True):  # Corrected constructor
         self.channels = []  # List to hold channels
         self.use_cache = use_cache
         self.cache = Cache(max_size=cache_size, ttl=ttl) if use_cache else None
         self.head_stub # write to the head of the chain
         self.tail_stub # read from the tail of the chain
-        
-    # def kv739_init_from_file(self, config_file):
-    #     """Initialize the client by reading service instances from a config file."""
-    #     try:
-    #         with open(config_file, 'r') as f:
-    #             lines = f.readlines()
-    #             server_ports = [line.strip() for line in lines if line.strip()]
-
-    #         # Call the existing initialization logic with parsed ports
-    #         return self.kv739_init(server_ports)
-
-    #     except FileNotFoundError:
-    #         logging.error(f"Config file '{config_file}' not found.")
-    #         return -1
-    #     except Exception as e:
-    #         logging.error(f"Error reading config file '{config_file}': {e}")
-    #         return -1
+        self.master_stub: kvstore_pb2_grpc.MasterNodeStub = kvstore_pb2_grpc.MasterNodeStub(grpc.insecure_channel(f'localhost:{port}'))
 
     def kv739_init(self, config_file):
         """Initialize connections to the provided list of server ports."""
@@ -85,7 +69,7 @@ class KV739Client:
                 stub.Ping(kvstore_pb2.PingRequest())
                 logging.info("Successfully connected to server on %s", endpoint)
 
-                self.current_stub = stub  # Set the current stub to the first available one
+                self.current_stub: kvstore_pb2_grpc.KVStoreStub = stub
                 self.channels.append(channel)  # Store the channel
                 return 0  # Connection successful
 
@@ -98,15 +82,14 @@ class KV739Client:
         return -1
     
 
-    def get_tail_stub(self):
+    def _get_tail_stub(self):
         """Fetches the current tail address from the master and creates a gRPC stub."""
         try:
             # Request the current tail address from the master
-            response = self.master_stub.GetTailAddress(kvstore_pb2.Empty())
+            response = self.master_stub.GetHead(kvstore_pb2.Empty())
             if response.success:
-                tail_address = response.tail_address
-                host, port = tail_address.split(':')
-                logging.info(f"Retrieved tail address: {tail_address}")
+                port, host = response.port, response.host
+                logging.info(f"Client retrieved tail address: {host}:{port}")
 
                 # Create and return a gRPC stub for the tail server
                 tail_channel = grpc.insecure_channel(f'{host}:{port}')
@@ -115,9 +98,28 @@ class KV739Client:
                 logging.error("Master failed to return a valid tail address.")
                 return None
         except grpc.RpcError as e:
-            logging.error(f"Error during GetTailAddress call: {e}")
+            logging.error(f"gRPC error during GetTailAddress call: {e}")
             return None  # Return None if an error occurs
 
+    def _get_head_stub(self):
+        """ Fetches the current head address from the master and creates a gRPC stub."""
+        try:
+            # Request the current head address from the master
+            response = self.master_stub.GetHead(kvstore_pb2.Empty())
+            if response.success:
+                port, host = response.port, response.host
+                logging.info(f"Client retrieved head address: {host}:{port}")
+
+                # Create and return a gRPC stub for the head server
+                head_channel = grpc.insecure_channel(f'{host}:{port}')
+                return kvstore_pb2_grpc.KVStoreStub(head_channel)
+            else:
+                logging.error("Master failed to return a valid head address.")
+                return None
+        except grpc.RpcError as e:
+            logging.error(f"Error during GetHeadAddress call: {e}")
+            return None
+        
     def kv739_get(self, key, timeout):
         """Contacts the master to get the tail address, 
         then communicates with the tail. If the tail fails, 
@@ -155,14 +157,14 @@ class KV739Client:
 
             # Step 4: If the tail fails, retry by fetching a new tail address
             logging.info("Retrying GET by contacting master for a new tail address...")
-            self.current_stub = self.get_tail_stub()  # Get a new tail stub
+            self.current_stub = self._get_tail_stub()  # Get a new tail stub
             if self.current_stub:  # Retry the GET operation with the new stub
                 return self.kv739_get(key, timeout)
             else:
                 logging.error("Failed to get a new tail stub.")
                 return -1  # Return failure if no new stub is available
 
-        # return -1  # Return failure if all attempts fail
+        return -1  # Return failure if all attempts fail
 
     
 
@@ -174,7 +176,7 @@ class KV739Client:
 
         # Step 1: Ensure we have a valid tail stub; if not, get it from the master.
         if not self.current_stub:
-            self.current_stub = self._get_tail_stub()
+            self.current_stub = self._get_head_stub()
             if not self.current_stub:
                 logging.error("Failed to retrieve a valid tail stub.")
                 return -1, ''  # Return failure if no tail stub is available.
@@ -200,7 +202,7 @@ class KV739Client:
 
             # Step 3: Retry by fetching a new tail stub from the master.
             logging.info("Retrying PUT by contacting master for a new tail address...")
-            self.current_stub = self.get_tail_stub()
+            self.current_stub = self._get_head_stub()
 
             if self.current_stub:  # If a new tail stub is obtained, retry the PUT operation.
                 return self.kv739_put(key, value, timeout)
@@ -246,7 +248,7 @@ class KV739Client:
 
         for server_name in server_names:
             try:
-                response = self.current_stub.Die(
+                response = self.head_stub.Die(
                     kvstore_pb2.DieRequest(server_name=server_name, clean=clean)
                 )
                 if response.success:

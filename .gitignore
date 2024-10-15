@@ -1,2 +1,4 @@
 db_files/**
 server_config.json
+*.log
+__pycache__/

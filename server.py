@@ -12,6 +12,7 @@ import random
 import json
 import os
 import subprocess
+import math
 
 DB_PATH = "./db_files/"
 
@@ -36,7 +37,7 @@ def scan_ports(num_ports=3, start_port=50000, end_port=60000):
 def create_config_file(filename='server_config.json', num_replicas=3):
     """Create a configuration file for server instances."""
     ports = scan_ports(num_replicas + 1)
-    ports = {"server_ports": ports[:-1], "master_port": ports[-1]}
+    ports = {"child_ports": ports[:-1], "master_port": ports[-1]}
     with open(filename, mode='w') as file:
         json.dump(ports, file)
 
@@ -54,9 +55,11 @@ class MasterNode:
     3. Recording the tail node to forward queries to.
     The master node is assumed to not fail or properly replicate itself.
     """
-    def __init__(self, num_replicas=10, timeout=3):
+    def __init__(self, port, child_ports, num_replicas=10, timeout=3,):
         """
         Args:
+            port (int): Port number to run the master node on
+            child_ports (list): List of ports for the child nodes
             num_replicas (int): Number of replicas in the chain
             timeout (int): Max timeout for heartbeat detection. This should be shorter than
                 cache TTL to ensure consistency (bring server back on line before cache is invalidated),
@@ -67,44 +70,60 @@ class MasterNode:
         self.num_replicas = num_replicas
         self.heartbeats = {} # {port: timestamp}
         self.server_stubs = {} # {port: stub}
+        self.min_chain_len = math.ceil(args.num_replicas / 2)
         
-        #create_config_file(num_replicas=num_replicas)
-        ports = read_config_file()
-        self.port = ports['master_port']
-        self.server_ports = ports['server_ports']
-        self.tail_port = self.server_ports[-1]
+        self.port = port
+        self.child_ports = child_ports
+        self.head_port = self.child_ports[0]
+        self.tail_port = self.child_ports[-1]
 
         # Spawn replica servers
         self.spawn_servers()
-    
+        # Runs in an infinite loop to check for heartbeats
+        threading.Thread(target=self.check_heartbeat, args=(self.timeout,)).start()
+        
+    def check_heartbeat(self, timeout=3):
+        """Check for heartbeats and remove failed servers."""
+        current_time = time.time()
+        for port, last_hb_time in self.heartbeats.items():
+            if current_time - last_hb_time > timeout:
+                logging.warning(f"Server on port {port} is down. Attempting replacement...")
+                self.replace_server(port)
+                logging.info(f"Server on port {port} replaced.")
+        # Check every `timeout` seconds
+        time.sleep(timeout)
+        
+    def log_heartbeat(self, port):
+        """Log the heartbeat for the given server port."""
+        self.heartbeats[port] = time.time()
+        
     def spawn_servers(self):
         """Spawn the replica servers and initialize them with master and child ports."""
-        for i, port in enumerate(self.server_ports):
-            child_port = self.server_ports[i + 1] if i < len(self.server_ports) - 1 else None  # Tail has no child
+        for i, port in enumerate(self.child_ports):
+            child_port = self.child_ports[i + 1] if i < len(self.child_ports) - 1 else None  # Tail has no child
             # Spawn the server with the required configuration
             process = self.start_server(port, child_port)
             self.servers[port] = process  # Store the process object for management
-
             logging.info(f"Server started on port {port} with child port {child_port}.")
             
     # TODO: spawn replica servers and pass master & child port to them
-    def start_server(self, port, child_port=None):
+    def start_server(self, child_port, next_child_port=None):
         """Start a replica server as a subprocess with the given ports."""
         command = [
             "python3", "replica_server.py",  # Launch the same server.py file
-            f"--port={port}", 
-            f"--master_port={self.port}"  # Pass the master port to the server
+            f"--port={child_port}", 
+            f"--master_port={self.port}",  # Pass the master port to the server
+            f"--crash_db={args.crash_db}"  # Whether to recover by chain forwarding
         ]
+        if next_child_port:
+            command.append(f"--child_port={next_child_port}")
         return subprocess.Popen(command)  # Start the server as a subprocess
     
     def get_head(self):
         """Get the head node's address in the chain. If it is down, replace it by spawning a new server."""
-        if not self.server_ports:
+        if not self.child_ports:
             logging.error("No servers are available.")
             return None
-
-        # The head is the first server in the chain
-        head_port = self.server_ports[0]
 
         # Check if the head is alive by verifying its last heartbeat
         current_time = time.time()
@@ -114,22 +133,23 @@ class MasterNode:
             # Replace the head by spawning a new server on an available port
             self.replace_server(head_port)
             # Update the head to the new server (newly spawned server should be at the front)
-            head_port = self.server_ports[0]
+            head_port = self.child_ports[0]
             logging.info(f"New head server spawned on port {head_port}.")
         else:
             logging.info(f"Head server is alive on port {head_port}.")
         
-        return head_port
+        hostname = socket.gethostname()
+        return head_port, hostname
 
         
     def get_tail(self):
         """Get the tail node's address in the chain. If it is down, replace it by spawning a new server."""
-        if not self.server_ports:
+        if not self.child_ports:
             logging.error("No servers are available.")
             return None
 
         # The tail is the last server in the chain
-        tail_port = self.server_ports[-1]
+        tail_port = self.child_ports[-1]
 
         # Check if the tail is alive by verifying its last heartbeat
         current_time = time.time()
@@ -139,12 +159,13 @@ class MasterNode:
             # Replace the tail by spawning a new server on an available port
             self.replace_server(tail_port)
             # Update the tail to the new server (new server added to the end of the list)
-            tail_port = self.server_ports[-1]
+            tail_port = self.child_ports[-1]
             logging.info(f"New tail server spawned on port {tail_port}.")
         else:
             logging.info(f"Tail server is alive on port {tail_port}.")
 
-        return tail_port
+        hostname = socket.gethostname()
+        return tail_port, hostname
 
     
     def replace_server(self, port, is_tail=False):
@@ -155,100 +176,13 @@ class MasterNode:
         """
         pass
     
-# Define SQLite-based storage backend
-class KeyValueStore:
-    def __init__(self, server_port, heartbeat_gap, prev_port=None, next_port=None, debug_mode=False):
-        self.db_file = os.path.join(DB_PATH, f"kvstore_{server_port}.db")
-        self.port = server_port
-        self.master_stub = None # heartbeat from replica to master
-        self.prev_stub = None
-        self.next_stub = None
-        self.heartbeat_gap = heartbeat_gap
-        assert not prev_port or not next_port, "Must be either head, tail or middle node"
-        if prev_port:
-            self.prev_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{prev_port}'))
-        if next_port:
-            self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{next_port}'))
-        self.master_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{server_port}'))
-        
-        try:
-            self.conn = sqlite3.connect(self.db_file, check_same_thread=False)
-            self.conn.execute("PRAGMA journal_mode=WAL;")
-            self.conn.execute("PRAGMA busy_timeout = 5000;")
-            self.conn.execute('''CREATE TABLE IF NOT EXISTS kvstore
-                                 (key TEXT PRIMARY KEY, value TEXT)''')
-            logging.info("Initialized KVStore")
-        except sqlite3.Error as e:
-            logging.error(f"Database connection error for server {server_port}: {e}")
-            raise
-        
-        # spawn another thread to send heartbeats every heartbeat_gap seconds
-        self.stop_event = threading.Event()
-        self.heartbeat_thread = threading.Thread(target=self.send_heartbeat)
-        self.heartbeat_thread.start()
-        
-    def send_heartbeat(self):
-        """Notify the master node that the server is alive in a "push" manner."""
-        while not self.stop_event.is_set():
-            try:
-                # Send heartbeat to master
-                # logging.info(f"Heartbeat sent from server {self.port}")
-                ack = self.master_stub.Ping(kvstore_pb2.PingRequest())
-                time.sleep(self.heartbeat_gap)  # Interval between heartbeats
-                return ack
-            except Exception as e:
-                logging.error(f"Error sending heartbeat on server {self.port}: {e}")
-                break
-        
-    def get(self, key):
-        try:
-            cursor = self.conn.execute("SELECT value FROM kvstore WHERE key=?", (key,))
-            result = cursor.fetchone()
-            logging.info("Get KVStore for key: %s", key)
-            if result:
-                logging.info("Result found: %s", result[0])
-                return result[0], True
-            return None, False
-        except sqlite3.Error as e:
-            logging.error(f"Error fetching key '{key}': {e}")
-            return None, False
 
-    def put(self, key, value):
-        old_value, found = self.get(key)
-        logging.info("Put KVStore for key: %s", key)
-        try:
-            with self.conn:
-                if found:
-                    self.conn.execute("UPDATE kvstore SET value=? WHERE key=?", (value, key))
-                else:
-                    self.conn.execute("INSERT INTO kvstore (key, value) VALUES (?, ?)", (key, value))
-            logging.info("Put operation successful for key: %s", key)
-            return old_value, found
-        except sqlite3.Error as e:
-            logging.error(f"Error writing to database for key '{key}': {e}")
-            return None, False
-
-    def crash(self, hit_by_missle=False):
-        """
-        Simulate the server crashing. If hit by a missle, all db data is lost (not needed for p2).
-        """
-        self.stop_event.set()
-        if hit_by_missle:
-            logging.info(f"Server {self.port} hit by a missile. All data lost.")
-            self.conn.close()
-            os.remove(self.db_file)
-            self.heartbeat_thread.join()
-        else:
-            logging.info("Server crashed.")
-            self.conn.close()
-            self.heartbeat_thread.join()
-
-
-class KVStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
-    def __init__(self, server: grpc.Server, store: KeyValueStore, master_port: int):
+# TODO implement master servicer
+class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
+    def __init__(self, server: grpc.Server, port: int, master_node: MasterNode):
         self.server = server  # Store the server reference
-        self.master_port = master_port
-        self.store = store
+        self.port = port
+        self.master_node = master_node
         
     @staticmethod
     def validate_key_value(key, value):
@@ -258,94 +192,64 @@ class KVStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             return False, "Value must be a valid printable ASCII string, 2048 or fewer bytes, and cannot contain '[' or ']'"
         return True, None
     
-    def Get(self, request, context):
-        valid, error_message = KVStoreServicer.validate_key_value(request.key, "")
-        if not valid:
-            logging.error(f"Get operation failed: {error_message}")
-            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
-            context.set_details(error_message)
-            return kvstore_pb2.GetResponse(value='', found=False)
+    def GetHead(self, request, context):
+        """Get the head node's address in the chain."""
+        head_port, hostname = MasterNode.get_head()
+        return kvstore_pb2.GetHeadResponse(port=head_port, hostname=hostname)
 
-        value, found = self.store.get(request.key)
-        return kvstore_pb2.GetResponse(value=value if found else '', found=found)
-
-    def Put(self, request, context):
-        valid, error_message = KVStoreServicer.validate_key_value(request.key, request.value)
-        if not valid:
-            logging.error(f"Put operation failed: {error_message}")
-            context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
-            context.set_details(error_message)
-            return kvstore_pb2.PutResponse(old_value='', old_value_found=False)
-
-        old_value, old_value_found = self.store.put(request.key, request.value)
-        return kvstore_pb2.PutResponse(old_value=old_value if old_value_found else '', old_value_found=old_value_found)
+    def GetTail(self, request, context):
+        """Get the tail node's address in the chain."""
+        tail_port, hostname = MasterNode.get_tail()
+        return kvstore_pb2.GetTailResponse(port=tail_port, hostname=hostname)
     
-    def Die(self, request, context):
-        """Terminate the server to simulate failure."""
-        logging.info(f"Received termination request for server: {request.server_name}. ")
-        
-        # Shut down the server
-        if hasattr(self, 'server'):
-            logging.info("Shutting down the server.")
-            self.server.stop(0)  # This will stop the server gracefully
-            self.store.crash(hit_by_missle=False)
-            logging.info("Server shut down successfully.")
+    def GetHeartBeat(self, request, context):
+        """Get the heartbeat status of the master node.
+            For now assume running on localhost, so we just need the port
+            to identify client.
+        """
+        client_info = context.peer()
+        client_port = int(client_info.split(":")[-1])
+        self.master_node.log_heartbeat(client_port)
+        return kvstore_pb2.HeartBeatResponse(alive=True)
 
-        context.set_code(grpc.StatusCode.OK)
-        context.set_details("Server is shutting down.")
-        return kvstore_pb2.DieResponse(success=True)
+def serve(args, ports):
+    # Setup args
+    master_port = ports["master_port"]
+    child_ports = ports["child_ports"]
     
-    def Ping(self, request, context):
-        logging.info("Ping received, server is alive.")
-        return kvstore_pb2.PingResponse(is_alive=True)
-
-
-def serve(args):
+    # Establish connection
+    MasterNode(master_port, child_ports, num_replicas=args.num_replicas, timeout=args.timeout)
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=5))
-    store = KeyValueStore(ports["master_port"], args.timeout)
-    kvstore_pb2_grpc.add_KVStoreServicer_to_server(KVStoreServicer(server, store, ports["master_port"]), server)
+    kvstore_pb2_grpc.add_KVStoreServicer_to_server(MasterServicer(server, master_port), server)
 
-    server.add_insecure_port(f'[::]:{ports["master_port"]}')
+    server.add_insecure_port(f'[::]:{master_port}')
     server.start()
     logging.info(f"Server started on masterport")
-    MasterNode(num_replicas=args.num_replicas, timeout=args.timeout)
     try:
         server.wait_for_termination()
         pass
     except KeyboardInterrupt:
         logging.info(f"Server on port shutting down.")
-
-
-
+        # Remove all db files
+        os.rmdir(DB_PATH)
+        
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Start a chain replication server.')
-    parser.add_argument("-a", "--action", choices=['master', 'replica'], default='master',
-                        help="Whether to start a master or launch replica nodes called from master")
-    parser.add_argument("-p", "--port", type=int, default=50000, help="For both master and replica. Port number to start the server on")
-    parser.add_argument("-m", "--master_port", type=int, default=50001, help="For child only. Master port to send heartbeat to")
+    parser.add_argument("-p", "--port", type=int, default=50000, help="For both master and replica. Port number to start the current server on")
     parser.add_argument("-n", "--num_replicas", type=int, default=3, help="Number of server replicas in chain")
     parser.add_argument("-t", "--timeout", type=int, default=3, help="Timeout for heartbeat detection. Should be less than cache TTL.")
+    parser.add_argument("--crash_db", type=eval, default=True,
+                        help="Whether to crash the database in failure simulation, which requires tail data forwarding to recover.")
     args = parser.parse_args()
 
-    # Create the configuration file
-
     create_config_file()  # You can specify the filename and num_replicas if needed
-
-    # Now read the configuration file
-
     try:
         ports = read_config_file()
         print("Configuration loaded:", ports)
-        
-        # Initialize your server with the loaded ports here
-        
+        serve(args, ports)
     except Exception as e:
         print("Error:", e)
-    if args.action == 'master':
-        args.master_port==ports["master_port"]
-        serve(args)
-        
 
     else:
         print("Master Server not started")

@@ -80,6 +80,13 @@ message PingResponse {
   bool is_alive = 1; // Indicates if the master is alive
 }
 
+message UpdateTailRequest {
+  int new_tail_port = 1;
+}
+message UpdateTailResponse {
+  bool success = 1;
+}
+
 service KVStore {
   rpc Get(GetRequest) returns (GetResponse);
   rpc Put(PutRequest) returns (PutResponse);
@@ -87,10 +94,35 @@ service KVStore {
   rpc BatchGet(BatchGetRequest) returns (BatchGetResponse);
   rpc BatchPut(BatchPutRequest) returns (BatchPutResponse);
   rpc SetReplicationMode(SetReplicationModeRequest) returns (SetReplicationModeResponse);  // To dynamically switch replication modes
-  
+  rpc PutToNext(PutRequest) returns (PutResponse);  // To forward Put requests to the next node in the chain
   // New Die RPC method
   rpc Die(DieRequest) returns (DieResponse);
   
   // New Ping RPC method
   rpc Ping(PingRequest) returns (PingResponse); // Add this line
+  rpc UpdateTail(UpdateTailRequest) returns (UpdateTailResponse);
+}
+
+
+message GetHeadRequest{
+}
+message GetHeadResponse{
+  int port = 1; 
+  str hostname = 2; // not needed for p2 running on localhost
+}
+message GetTailRequest{
+}
+message GetTailResponse{
+  int port = 1;
+  str hostname = 2; // not needed for p2 running on localhost
+}
+message GetHeartBeatRequest{
+}
+message GetHeartBeatResponse{
+  bool is_alive = 1;
+}
+service MasterNode {
+  rpc GetHead(GetHeadRequest) returns (GetHeadResponse);
+  rpc GetTail(GetTailRequest) returns (GetTailResponse);
+  rpc GetHeartBeat(GetHeartBeatRequest) returns (GetHeartBeatResponse);
 }

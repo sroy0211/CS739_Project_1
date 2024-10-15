@@ -255,6 +255,8 @@ if __name__ == '__main__':
     parser.add_argument('--log_level', default='INFO', help='Logging level (default: INFO)')
     parser.add_argument('--rw_ratio', type=float, default=0.5, 
                         help='Read-write request ratio for performance tests. Chain replication is good with pipelined reads')
+    parser.add_argument("--crash_db", type=eval, default=True,
+                        help="Whether to crash the database in failure simulation, which requires tail data forwarding to recover.")
 
     args = parser.parse_args()
 

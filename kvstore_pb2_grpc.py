@@ -299,3 +299,130 @@ class KVStore(object):
             kvstore__pb2.PingResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+
+class MasterNodeStub(object):
+    """Missing associated documentation comment in .proto file."""
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.GetHead = channel.unary_unary(
+                '/kvstore.MasterNode/GetHead',
+                request_serializer=kvstore__pb2.GetHeadRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.GetHeadResponse.FromString,
+                )
+        self.GetTail = channel.unary_unary(
+                '/kvstore.MasterNode/GetTail',
+                request_serializer=kvstore__pb2.GetTailRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.GetTailResponse.FromString,
+                )
+        self.SendHeartbeat = channel.unary_unary(
+                '/kvstore.MasterNode/SendHeartbeat',
+                request_serializer=kvstore__pb2.SendHeartbeatRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.SendHeartbeatResponse.FromString,
+                )
+
+
+class MasterNodeServicer(object):
+    """Missing associated documentation comment in .proto file."""
+
+    def GetHead(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetTail(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SendHeartbeat(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_MasterNodeServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'GetHead': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetHead,
+                    request_deserializer=kvstore__pb2.GetHeadRequest.FromString,
+                    response_serializer=kvstore__pb2.GetHeadResponse.SerializeToString,
+            ),
+            'GetTail': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetTail,
+                    request_deserializer=kvstore__pb2.GetTailRequest.FromString,
+                    response_serializer=kvstore__pb2.GetTailResponse.SerializeToString,
+            ),
+            'SendHeartbeat': grpc.unary_unary_rpc_method_handler(
+                    servicer.SendHeartbeat,
+                    request_deserializer=kvstore__pb2.SendHeartbeatRequest.FromString,
+                    response_serializer=kvstore__pb2.SendHeartbeatResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'kvstore.MasterNode', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+
+
+ # This class is part of an EXPERIMENTAL API.
+class MasterNode(object):
+    """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def GetHead(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/GetHead',
+            kvstore__pb2.GetHeadRequest.SerializeToString,
+            kvstore__pb2.GetHeadResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def GetTail(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/GetTail',
+            kvstore__pb2.GetTailRequest.SerializeToString,
+            kvstore__pb2.GetTailResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def SendHeartbeat(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/SendHeartbeat',
+            kvstore__pb2.SendHeartbeatRequest.SerializeToString,
+            kvstore__pb2.SendHeartbeatResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
