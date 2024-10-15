@@ -22,7 +22,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def scan_ports(num_ports=100, start_port=50000, end_port=60000):
+def scan_ports(num_ports=3, start_port=50000, end_port=60000):
     """ Look for an open port in the given range. """
     ports = []
     while(len(ports) < num_ports):
@@ -33,7 +33,7 @@ def scan_ports(num_ports=100, start_port=50000, end_port=60000):
                 ports.append(port)
     return ports
 
-def create_config_file(filename='server_config.json', num_replicas=100):
+def create_config_file(filename='server_config.json', num_replicas=3):
     """Create a configuration file for server instances."""
     ports = scan_ports(num_replicas + 1)
     ports = {"server_ports": ports[:-1], "master_port": ports[-1]}
@@ -54,7 +54,7 @@ class MasterNode:
     3. Recording the tail node to forward queries to.
     The master node is assumed to not fail or properly replicate itself.
     """
-    def __init__(self, num_replicas=100, timeout=3):
+    def __init__(self, num_replicas=10, timeout=3):
         """
         Args:
             num_replicas (int): Number of replicas in the chain
@@ -68,7 +68,7 @@ class MasterNode:
         self.heartbeats = {} # {port: timestamp}
         self.server_stubs = {} # {port: stub}
         
-        create_config_file(num_replicas=num_replicas)
+        #create_config_file(num_replicas=num_replicas)
         ports = read_config_file()
         self.port = ports['master_port']
         self.server_ports = ports['server_ports']
@@ -81,7 +81,6 @@ class MasterNode:
         """Spawn the replica servers and initialize them with master and child ports."""
         for i, port in enumerate(self.server_ports):
             child_port = self.server_ports[i + 1] if i < len(self.server_ports) - 1 else None  # Tail has no child
-
             # Spawn the server with the required configuration
             process = self.start_server(port, child_port)
             self.servers[port] = process  # Store the process object for management
@@ -92,7 +91,7 @@ class MasterNode:
     def start_server(self, port, child_port=None):
         """Start a replica server as a subprocess with the given ports."""
         command = [
-            "python3", "server.py",  # Launch the same server.py file
+            "python3", "replica_server.py",  # Launch the same server.py file
             f"--port={port}", 
             f"--master_port={self.port}"  # Pass the master port to the server
         ]
@@ -303,18 +302,20 @@ class KVStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
 
 def serve(args):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=5))
-    store = KeyValueStore(args.port, args.timeout)
-    kvstore_pb2_grpc.add_KVStoreServicer_to_server(KVStoreServicer(server, store, args.master_port), server)
-    server.add_insecure_port(f'[::]:{args.port}')
+    store = KeyValueStore(ports["master_port"], args.timeout)
+    kvstore_pb2_grpc.add_KVStoreServicer_to_server(KVStoreServicer(server, store, ports["master_port"]), server)
+
+    server.add_insecure_port(f'[::]:{ports["master_port"]}')
     server.start()
-    logging.info(f"Server started on port {args.port}")
+    logging.info(f"Server started on masterport")
+    MasterNode(num_replicas=args.num_replicas, timeout=args.timeout)
     try:
-        while True:
-            time.sleep(86400)  # Keep the server running
+        server.wait_for_termination()
+        pass
     except KeyboardInterrupt:
-        logging.info("Shutting down the server gracefully.")
-        server.stop(0)  # This will stop the server gracefully
-        logging.info(f"Server on port {args.port} shut down successfully.")
+        logging.info(f"Server on port shutting down.")
+
+
 
 
 if __name__ == '__main__':
@@ -323,11 +324,28 @@ if __name__ == '__main__':
                         help="Whether to start a master or launch replica nodes called from master")
     parser.add_argument("-p", "--port", type=int, default=50000, help="For both master and replica. Port number to start the server on")
     parser.add_argument("-m", "--master_port", type=int, default=50001, help="For child only. Master port to send heartbeat to")
-    parser.add_argument("-n", "--num_replicas", type=int, default=100, help="Number of server replicas in chain")
+    parser.add_argument("-n", "--num_replicas", type=int, default=3, help="Number of server replicas in chain")
     parser.add_argument("-t", "--timeout", type=int, default=3, help="Timeout for heartbeat detection. Should be less than cache TTL.")
     args = parser.parse_args()
+
+    # Create the configuration file
+
+    create_config_file()  # You can specify the filename and num_replicas if needed
+
+    # Now read the configuration file
+
+    try:
+        ports = read_config_file()
+        print("Configuration loaded:", ports)
+        
+        # Initialize your server with the loaded ports here
+        
+    except Exception as e:
+        print("Error:", e)
     if args.action == 'master':
-        master_node = MasterNode(num_replicas=args.num_replicas, timeout=args.timeout)
-    else:
+        args.master_port==ports["master_port"]
         serve(args)
-    
+        
+
+    else:
+        print("Master Server not started")
