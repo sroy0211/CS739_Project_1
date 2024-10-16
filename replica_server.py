@@ -33,15 +33,15 @@ class KeyValueStore:
             heartbeat_gap: The interval between heartbeats.
             prev_port: The port of the previous server in the chain.
             next_port: The port of the next server in the chain.
-            debug_mode: Whether to run in debug mode.
+            debug_mode: Whether to print debug info.
             crash_db: Whether to clear the database(local file system) on failure.
         """
         
         self.db_file = os.path.join(DB_PATH, f"kvstore_{server_port}.db")
         self.port = server_port
-        self.master_stub = None # heartbeat from replica to master
-        self.prev_stub = None
-        self.next_stub = None
+        self.master_stub: kvstore_pb2_grpc.MasterNodeStub = None
+        self.prev_stub : kvstore_pb2_grpc.KVStoreStub = None
+        self.next_stub : kvstore_pb2_grpc.KVStoreStub = None
         self.heartbeat_gap = heartbeat_gap
         self.crash_db = crash_db
         
@@ -74,11 +74,11 @@ class KeyValueStore:
             try:
                 # Send heartbeat to master
                 logging.info(f"Heartbeat sent from server {self.port}")
-                ack = self.master_stub.Ping(kvstore_pb2.PingRequest())
+                ack = self.master_stub.GetHeartBeat(kvstore_pb2.HeartBeatRequest())
                 time.sleep(self.heartbeat_gap)  # Interval between heartbeats
                 return ack
             except Exception as e:
-                logging.error(f"Error sending heartbeat on server {self.port}: {e}")
+                logging.error(f"Server {self.port} failed to send heartbeat to master: {e}")
                 break
         
     def get(self, key):
@@ -134,7 +134,8 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         self.child_port = child_port
         self.store = store
         self.db_file = os.path.join(DB_PATH, f"kvstore_{port}.db")
-
+        self.master_stub = kvstore_pb2_grpc.MasterNodeStub(grpc.insecure_channel(f'localhost:{master_port}'))
+        
         # Database connection
         try:
             self.conn = sqlite3.connect(self.db_file, check_same_thread=False)
@@ -158,7 +159,8 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             try:
                 # Simulate sending a heartbeat to the master
                 logging.info(f"Heartbeat sent from server {self.port} to master {self.master_port}")
-                time.sleep(2.5)  # Adjust heartbeat interval if needed
+                self.master_stub.GetHeartBeat(kvstore_pb2.HeartBeatRequest())
+                time.sleep(self.store.heartbeat_gap)  # Adjust heartbeat interval if needed
                 
             except Exception as e:
                 logging.error(f"Error in heartbeat thread on port {self.port}: {e}")
@@ -212,7 +214,7 @@ def serve(args):
     """Run the gRPC server."""
     port, master_port, child_port = args.port, args.master_port, args.next_port
     
-    store = KeyValueStore(master_port, args.timeout)
+    store = KeyValueStore(master_port, heartbeat_gap=args.timeout)
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     kvstore_servicer = KeyValueStoreServicer(port, master_port, store, child_port)
     kvstore_pb2_grpc.add_KVStoreServicer_to_server(kvstore_servicer, server)
@@ -223,7 +225,6 @@ def serve(args):
 
     try:
         server.wait_for_termination()
-        pass
     except KeyboardInterrupt:
         logging.info(f"Server on port {port} shutting down.")
         kvstore_servicer.stop_event.set()
@@ -235,6 +236,7 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--master_port', type=int, required=True, help='Master node port.')
     parser.add_argument('--next_port', type=int, default=None,
                         help='Child port of the next server in the chain (if any).')
+    parser.add_argument('-i', "--heartbeat_interval", type=int, default=1, help='Heartbeat interval in seconds.')
     parser.add_argument("--crash_db", type=eval, default=True,
                         help="Whether to crash the database in failure simulation, which requires tail data forwarding to recover.")
     args = parser.parse_args()

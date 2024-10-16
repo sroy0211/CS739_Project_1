@@ -77,7 +77,7 @@ message PingRequest {
 }
 
 message PingResponse {
-  bool is_alive = 1; // Indicates if the master is alive
+  bool is_alive = 1; // if the master is alive
 }
 
 message UpdateTailRequest {
@@ -117,6 +117,7 @@ message GetTailResponse{
   string hostname = 2; // not needed for p2 running on localhost
 }
 message GetHeartBeatRequest{
+  bool is_alive = 1; // whether the child is alive
 }
 message GetHeartBeatResponse{
   bool is_alive = 1;

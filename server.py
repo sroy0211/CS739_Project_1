@@ -93,9 +93,14 @@ class MasterNode:
         # Check every `timeout` seconds
         time.sleep(timeout)
         
-    def log_heartbeat(self, port):
-        """Log the heartbeat for the given server port."""
-        self.heartbeats[port] = time.time()
+    def log_heartbeat(self, port, is_alive=True):
+        """Log the heartbeat for the given server port, or replace a server
+        in a "clean" way. """
+        if not is_alive:
+            self.heartbeats[port] = None
+            self.replace_server(port)
+        else:
+            self.heartbeats[port] = time.time()
         
     def spawn_servers(self):
         """Spawn the replica servers and initialize them with master and child ports."""
@@ -179,10 +184,10 @@ class MasterNode:
 
 # TODO implement master servicer
 class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
-    def __init__(self, server: grpc.Server, port: int, master_node: MasterNode):
+    def __init__(self, server: grpc.Server, master_node: MasterNode, port: int):
         self.server = server  # Store the server reference
-        self.port = port
         self.master_node = master_node
+        self.port = master_node.port
         
     @staticmethod
     def validate_key_value(key, value):
@@ -209,8 +214,10 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
         """
         client_info = context.peer()
         client_port = int(client_info.split(":")[-1])
-        self.master_node.log_heartbeat(client_port)
-        return kvstore_pb2.HeartBeatResponse(alive=True)
+        # Assume running on localhost
+
+        self.master_node.log_heartbeat(client_port, is_alive=request.is_alive)
+        return kvstore_pb2.HeartBeatResponse(is_alive=True)
 
 def serve(args, ports):
     # Setup args
@@ -218,9 +225,9 @@ def serve(args, ports):
     child_ports = ports["child_ports"]
     
     # Establish connection
-    MasterNode(master_port, child_ports, num_replicas=args.num_replicas, timeout=args.timeout)
+    master_node = MasterNode(master_port, child_ports, num_replicas=args.num_replicas, timeout=args.timeout)
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=5))
-    kvstore_pb2_grpc.add_KVStoreServicer_to_server(MasterServicer(server, master_port), server)
+    kvstore_pb2_grpc.add_KVStoreServicer_to_server(MasterServicer(server, master_node), server)
 
     server.add_insecure_port(f'[::]:{master_port}')
     server.start()

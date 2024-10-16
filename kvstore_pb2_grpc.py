@@ -44,6 +44,11 @@ class KVStoreStub(object):
                 request_serializer=kvstore__pb2.SetReplicationModeRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.SetReplicationModeResponse.FromString,
                 )
+        self.PutToNext = channel.unary_unary(
+                '/kvstore.KVStore/PutToNext',
+                request_serializer=kvstore__pb2.PutRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.PutResponse.FromString,
+                )
         self.Die = channel.unary_unary(
                 '/kvstore.KVStore/Die',
                 request_serializer=kvstore__pb2.DieRequest.SerializeToString,
@@ -53,6 +58,11 @@ class KVStoreStub(object):
                 '/kvstore.KVStore/Ping',
                 request_serializer=kvstore__pb2.PingRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.PingResponse.FromString,
+                )
+        self.UpdateTail = channel.unary_unary(
+                '/kvstore.KVStore/UpdateTail',
+                request_serializer=kvstore__pb2.UpdateTailRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.UpdateTailResponse.FromString,
                 )
 
 
@@ -96,6 +106,13 @@ class KVStoreServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def PutToNext(self, request, context):
+        """To forward Put requests to the next node in the chain
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Die(self, request, context):
         """New Die RPC method
         """
@@ -107,6 +124,12 @@ class KVStoreServicer(object):
         """New Ping RPC method
         Add this line
         """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateTail(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -144,6 +167,11 @@ def add_KVStoreServicer_to_server(servicer, server):
                     request_deserializer=kvstore__pb2.SetReplicationModeRequest.FromString,
                     response_serializer=kvstore__pb2.SetReplicationModeResponse.SerializeToString,
             ),
+            'PutToNext': grpc.unary_unary_rpc_method_handler(
+                    servicer.PutToNext,
+                    request_deserializer=kvstore__pb2.PutRequest.FromString,
+                    response_serializer=kvstore__pb2.PutResponse.SerializeToString,
+            ),
             'Die': grpc.unary_unary_rpc_method_handler(
                     servicer.Die,
                     request_deserializer=kvstore__pb2.DieRequest.FromString,
@@ -153,6 +181,11 @@ def add_KVStoreServicer_to_server(servicer, server):
                     servicer.Ping,
                     request_deserializer=kvstore__pb2.PingRequest.FromString,
                     response_serializer=kvstore__pb2.PingResponse.SerializeToString,
+            ),
+            'UpdateTail': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateTail,
+                    request_deserializer=kvstore__pb2.UpdateTailRequest.FromString,
+                    response_serializer=kvstore__pb2.UpdateTailResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -267,6 +300,23 @@ class KVStore(object):
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
+    def PutToNext(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/PutToNext',
+            kvstore__pb2.PutRequest.SerializeToString,
+            kvstore__pb2.PutResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
     def Die(request,
             target,
             options=(),
@@ -300,6 +350,23 @@ class KVStore(object):
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
+    @staticmethod
+    def UpdateTail(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/UpdateTail',
+            kvstore__pb2.UpdateTailRequest.SerializeToString,
+            kvstore__pb2.UpdateTailResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
 
 class MasterNodeStub(object):
     """Missing associated documentation comment in .proto file."""
@@ -320,10 +387,10 @@ class MasterNodeStub(object):
                 request_serializer=kvstore__pb2.GetTailRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.GetTailResponse.FromString,
                 )
-        self.SendHeartbeat = channel.unary_unary(
-                '/kvstore.MasterNode/SendHeartbeat',
-                request_serializer=kvstore__pb2.SendHeartbeatRequest.SerializeToString,
-                response_deserializer=kvstore__pb2.SendHeartbeatResponse.FromString,
+        self.GetHeartBeat = channel.unary_unary(
+                '/kvstore.MasterNode/GetHeartBeat',
+                request_serializer=kvstore__pb2.GetHeartBeatRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.GetHeartBeatResponse.FromString,
                 )
 
 
@@ -342,7 +409,7 @@ class MasterNodeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def SendHeartbeat(self, request, context):
+    def GetHeartBeat(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -361,10 +428,10 @@ def add_MasterNodeServicer_to_server(servicer, server):
                     request_deserializer=kvstore__pb2.GetTailRequest.FromString,
                     response_serializer=kvstore__pb2.GetTailResponse.SerializeToString,
             ),
-            'SendHeartbeat': grpc.unary_unary_rpc_method_handler(
-                    servicer.SendHeartbeat,
-                    request_deserializer=kvstore__pb2.SendHeartbeatRequest.FromString,
-                    response_serializer=kvstore__pb2.SendHeartbeatResponse.SerializeToString,
+            'GetHeartBeat': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetHeartBeat,
+                    request_deserializer=kvstore__pb2.GetHeartBeatRequest.FromString,
+                    response_serializer=kvstore__pb2.GetHeartBeatResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -411,7 +478,7 @@ class MasterNode(object):
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def SendHeartbeat(request,
+    def GetHeartBeat(request,
             target,
             options=(),
             channel_credentials=None,
@@ -421,8 +488,8 @@ class MasterNode(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/SendHeartbeat',
-            kvstore__pb2.SendHeartbeatRequest.SerializeToString,
-            kvstore__pb2.SendHeartbeatResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/GetHeartBeat',
+            kvstore__pb2.GetHeartBeatRequest.SerializeToString,
+            kvstore__pb2.GetHeartBeatResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

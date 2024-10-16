@@ -5,6 +5,7 @@ import logging
 import argparse
 import time
 from collections import OrderedDict
+import json
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -126,8 +127,8 @@ class KV739Client:
         if not self.tail_stub:
             self.tail_stub = self._get_tail_stub()
             if not self.tail_stub:
-                logging.error("Failed to initialize tail stub.")
-                return -1, ''  # Return error if tail stub could not be initialized
+                logging.error(f"Client failed to initialize tail stub.")
+                return -1, ''  
 
         try:
             # Make a Get request to the tail server
@@ -144,6 +145,7 @@ class KV739Client:
         except grpc.RpcError as e:
             logging.error(f"GET operation failed: {e}")
             self.tail_stub = None  # Reset tail stub on error
+            self.cache.clear()  # Clear the cache on error
             return self.kv739_get(key, timeout)  # Retry the operation
 
 

@@ -13,7 +13,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rkvstore.proto\x12\x07kvstore\"\x19\n\nGetRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\"<\n\x0bGetResponse\x12\r\n\x05value\x18\x01 \x01(\t\x12\r\n\x05\x66ound\x18\x02 \x01(\x08\x12\x0f\n\x07version\x18\x03 \x01(\x04\"9\n\nPutRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\x04\"J\n\x0bPutResponse\x12\x11\n\told_value\x18\x01 \x01(\t\x12\x17\n\x0fold_value_found\x18\x02 \x01(\x08\x12\x0f\n\x07version\x18\x03 \x01(\x04\"\x1c\n\rDeleteRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\"!\n\x0e\x44\x65leteResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\x1f\n\x0f\x42\x61tchGetRequest\x12\x0c\n\x04keys\x18\x01 \x03(\t\"\x91\x01\n\x10\x42\x61tchGetResponse\x12\x37\n\x07results\x18\x01 \x03(\x0b\x32&.kvstore.BatchGetResponse.ResultsEntry\x1a\x44\n\x0cResultsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12#\n\x05value\x18\x02 \x01(\x0b\x32\x14.kvstore.GetResponse:\x02\x38\x01\"\x80\x01\n\x0f\x42\x61tchPutRequest\x12;\n\nkey_values\x18\x01 \x03(\x0b\x32\'.kvstore.BatchPutRequest.KeyValuesEntry\x1a\x30\n\x0eKeyValuesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x91\x01\n\x10\x42\x61tchPutResponse\x12\x37\n\x07results\x18\x01 \x03(\x0b\x32&.kvstore.BatchPutResponse.ResultsEntry\x1a\x44\n\x0cResultsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12#\n\x05value\x18\x02 \x01(\x0b\x32\x14.kvstore.PutResponse:\x02\x38\x01\"C\n\x19SetReplicationModeRequest\x12&\n\x04mode\x18\x01 \x01(\x0e\x32\x18.kvstore.ReplicationMode\"-\n\x1aSetReplicationModeResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\",\n\nDieRequest\x12\r\n\x05\x63lean\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"/\n\x0b\x44ieResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"\r\n\x0bPingRequest\" \n\x0cPingResponse\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\"\x10\n\x0eGetHeadRequest\"#\n\x0fGetHeadResponse\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\"\x10\n\x0eGetTailRequest\"#\n\x0fGetTailResponse\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\"\x16\n\x14SendHeartbeatRequest\")\n\x15SendHeartbeatResponse\x12\x10\n\x08is_alive\x18\x01 \x01(\x08*\'\n\x0fReplicationMode\x12\n\n\x06QUORUM\x10\x00\x12\x08\n\x04RAFT\x10\x01\x32\xf0\x03\n\x07KVStore\x12\x30\n\x03Get\x12\x13.kvstore.GetRequest\x1a\x14.kvstore.GetResponse\x12\x30\n\x03Put\x12\x13.kvstore.PutRequest\x1a\x14.kvstore.PutResponse\x12\x39\n\x06\x44\x65lete\x12\x16.kvstore.DeleteRequest\x1a\x17.kvstore.DeleteResponse\x12?\n\x08\x42\x61tchGet\x12\x18.kvstore.BatchGetRequest\x1a\x19.kvstore.BatchGetResponse\x12?\n\x08\x42\x61tchPut\x12\x18.kvstore.BatchPutRequest\x1a\x19.kvstore.BatchPutResponse\x12]\n\x12SetReplicationMode\x12\".kvstore.SetReplicationModeRequest\x1a#.kvstore.SetReplicationModeResponse\x12\x30\n\x03\x44ie\x12\x13.kvstore.DieRequest\x1a\x14.kvstore.DieResponse\x12\x33\n\x04Ping\x12\x14.kvstore.PingRequest\x1a\x15.kvstore.PingResponse2\xd8\x01\n\nMasterNode\x12<\n\x07GetHead\x12\x17.kvstore.GetHeadRequest\x1a\x18.kvstore.GetHeadResponse\x12<\n\x07GetTail\x12\x17.kvstore.GetTailRequest\x1a\x18.kvstore.GetTailResponse\x12N\n\rSendHeartbeat\x12\x1d.kvstore.SendHeartbeatRequest\x1a\x1e.kvstore.SendHeartbeatResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rkvstore.proto\x12\x07kvstore\"\x19\n\nGetRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\"<\n\x0bGetResponse\x12\r\n\x05value\x18\x01 \x01(\t\x12\r\n\x05\x66ound\x18\x02 \x01(\x08\x12\x0f\n\x07version\x18\x03 \x01(\x04\"9\n\nPutRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\x04\"J\n\x0bPutResponse\x12\x11\n\told_value\x18\x01 \x01(\t\x12\x17\n\x0fold_value_found\x18\x02 \x01(\x08\x12\x0f\n\x07version\x18\x03 \x01(\x04\"\x1c\n\rDeleteRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\"!\n\x0e\x44\x65leteResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\x1f\n\x0f\x42\x61tchGetRequest\x12\x0c\n\x04keys\x18\x01 \x03(\t\"\x91\x01\n\x10\x42\x61tchGetResponse\x12\x37\n\x07results\x18\x01 \x03(\x0b\x32&.kvstore.BatchGetResponse.ResultsEntry\x1a\x44\n\x0cResultsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12#\n\x05value\x18\x02 \x01(\x0b\x32\x14.kvstore.GetResponse:\x02\x38\x01\"\x80\x01\n\x0f\x42\x61tchPutRequest\x12;\n\nkey_values\x18\x01 \x03(\x0b\x32\'.kvstore.BatchPutRequest.KeyValuesEntry\x1a\x30\n\x0eKeyValuesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x91\x01\n\x10\x42\x61tchPutResponse\x12\x37\n\x07results\x18\x01 \x03(\x0b\x32&.kvstore.BatchPutResponse.ResultsEntry\x1a\x44\n\x0cResultsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12#\n\x05value\x18\x02 \x01(\x0b\x32\x14.kvstore.PutResponse:\x02\x38\x01\"C\n\x19SetReplicationModeRequest\x12&\n\x04mode\x18\x01 \x01(\x0e\x32\x18.kvstore.ReplicationMode\"-\n\x1aSetReplicationModeResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\",\n\nDieRequest\x12\r\n\x05\x63lean\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"/\n\x0b\x44ieResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"\r\n\x0bPingRequest\" \n\x0cPingResponse\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\"*\n\x11UpdateTailRequest\x12\x15\n\rnew_tail_port\x18\x01 \x01(\x05\"%\n\x12UpdateTailResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\x10\n\x0eGetHeadRequest\"1\n\x0fGetHeadResponse\x12\x0c\n\x04port\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\"\x10\n\x0eGetTailRequest\"1\n\x0fGetTailResponse\x12\x0c\n\x04port\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\"\'\n\x13GetHeartBeatRequest\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\"(\n\x14GetHeartBeatResponse\x12\x10\n\x08is_alive\x18\x01 \x01(\x08*\'\n\x0fReplicationMode\x12\n\n\x06QUORUM\x10\x00\x12\x08\n\x04RAFT\x10\x01\x32\xef\x04\n\x07KVStore\x12\x30\n\x03Get\x12\x13.kvstore.GetRequest\x1a\x14.kvstore.GetResponse\x12\x30\n\x03Put\x12\x13.kvstore.PutRequest\x1a\x14.kvstore.PutResponse\x12\x39\n\x06\x44\x65lete\x12\x16.kvstore.DeleteRequest\x1a\x17.kvstore.DeleteResponse\x12?\n\x08\x42\x61tchGet\x12\x18.kvstore.BatchGetRequest\x1a\x19.kvstore.BatchGetResponse\x12?\n\x08\x42\x61tchPut\x12\x18.kvstore.BatchPutRequest\x1a\x19.kvstore.BatchPutResponse\x12]\n\x12SetReplicationMode\x12\".kvstore.SetReplicationModeRequest\x1a#.kvstore.SetReplicationModeResponse\x12\x36\n\tPutToNext\x12\x13.kvstore.PutRequest\x1a\x14.kvstore.PutResponse\x12\x30\n\x03\x44ie\x12\x13.kvstore.DieRequest\x1a\x14.kvstore.DieResponse\x12\x33\n\x04Ping\x12\x14.kvstore.PingRequest\x1a\x15.kvstore.PingResponse\x12\x45\n\nUpdateTail\x12\x1a.kvstore.UpdateTailRequest\x1a\x1b.kvstore.UpdateTailResponse2\xd5\x01\n\nMasterNode\x12<\n\x07GetHead\x12\x17.kvstore.GetHeadRequest\x1a\x18.kvstore.GetHeadResponse\x12<\n\x07GetTail\x12\x17.kvstore.GetTailRequest\x1a\x18.kvstore.GetTailResponse\x12K\n\x0cGetHeartBeat\x12\x1c.kvstore.GetHeartBeatRequest\x1a\x1d.kvstore.GetHeartBeatResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -27,8 +27,8 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _BATCHPUTREQUEST_KEYVALUESENTRY._serialized_options = b'8\001'
   _BATCHPUTRESPONSE_RESULTSENTRY._options = None
   _BATCHPUTRESPONSE_RESULTSENTRY._serialized_options = b'8\001'
-  _globals['_REPLICATIONMODE']._serialized_start=1212
-  _globals['_REPLICATIONMODE']._serialized_end=1251
+  _globals['_REPLICATIONMODE']._serialized_start=1339
+  _globals['_REPLICATIONMODE']._serialized_end=1378
   _globals['_GETREQUEST']._serialized_start=26
   _globals['_GETREQUEST']._serialized_end=51
   _globals['_GETRESPONSE']._serialized_start=53
@@ -67,20 +67,24 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['_PINGREQUEST']._serialized_end=999
   _globals['_PINGRESPONSE']._serialized_start=1001
   _globals['_PINGRESPONSE']._serialized_end=1033
-  _globals['_GETHEADREQUEST']._serialized_start=1035
-  _globals['_GETHEADREQUEST']._serialized_end=1051
-  _globals['_GETHEADRESPONSE']._serialized_start=1053
-  _globals['_GETHEADRESPONSE']._serialized_end=1088
-  _globals['_GETTAILREQUEST']._serialized_start=1090
-  _globals['_GETTAILREQUEST']._serialized_end=1106
-  _globals['_GETTAILRESPONSE']._serialized_start=1108
-  _globals['_GETTAILRESPONSE']._serialized_end=1143
-  _globals['_SENDHEARTBEATREQUEST']._serialized_start=1145
-  _globals['_SENDHEARTBEATREQUEST']._serialized_end=1167
-  _globals['_SENDHEARTBEATRESPONSE']._serialized_start=1169
-  _globals['_SENDHEARTBEATRESPONSE']._serialized_end=1210
-  _globals['_KVSTORE']._serialized_start=1254
-  _globals['_KVSTORE']._serialized_end=1750
-  _globals['_MASTERNODE']._serialized_start=1753
-  _globals['_MASTERNODE']._serialized_end=1969
+  _globals['_UPDATETAILREQUEST']._serialized_start=1035
+  _globals['_UPDATETAILREQUEST']._serialized_end=1077
+  _globals['_UPDATETAILRESPONSE']._serialized_start=1079
+  _globals['_UPDATETAILRESPONSE']._serialized_end=1116
+  _globals['_GETHEADREQUEST']._serialized_start=1118
+  _globals['_GETHEADREQUEST']._serialized_end=1134
+  _globals['_GETHEADRESPONSE']._serialized_start=1136
+  _globals['_GETHEADRESPONSE']._serialized_end=1185
+  _globals['_GETTAILREQUEST']._serialized_start=1187
+  _globals['_GETTAILREQUEST']._serialized_end=1203
+  _globals['_GETTAILRESPONSE']._serialized_start=1205
+  _globals['_GETTAILRESPONSE']._serialized_end=1254
+  _globals['_GETHEARTBEATREQUEST']._serialized_start=1256
+  _globals['_GETHEARTBEATREQUEST']._serialized_end=1295
+  _globals['_GETHEARTBEATRESPONSE']._serialized_start=1297
+  _globals['_GETHEARTBEATRESPONSE']._serialized_end=1337
+  _globals['_KVSTORE']._serialized_start=1381
+  _globals['_KVSTORE']._serialized_end=2004
+  _globals['_MASTERNODE']._serialized_start=2007
+  _globals['_MASTERNODE']._serialized_end=2220
 # @@protoc_insertion_point(module_scope)
