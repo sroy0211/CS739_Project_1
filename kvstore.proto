@@ -81,7 +81,7 @@ message PingResponse {
 }
 
 message UpdateTailRequest {
-  int new_tail_port = 1;
+  int32 new_tail_port = 1;
 }
 message UpdateTailResponse {
   bool success = 1;
@@ -107,14 +107,14 @@ service KVStore {
 message GetHeadRequest{
 }
 message GetHeadResponse{
-  int port = 1; 
-  str hostname = 2; // not needed for p2 running on localhost
+  int32 port = 1; 
+  string hostname = 2; // not needed for p2 running on localhost
 }
 message GetTailRequest{
 }
 message GetTailResponse{
-  int port = 1;
-  str hostname = 2; // not needed for p2 running on localhost
+  int32 port = 1;
+  string hostname = 2; // not needed for p2 running on localhost
 }
 message GetHeartBeatRequest{
 }
