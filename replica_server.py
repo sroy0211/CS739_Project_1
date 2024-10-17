@@ -8,6 +8,8 @@ import sqlite3
 import os
 import time
 import threading
+from typing import Iterable, Tuple
+
 # Set up logging to file
 logging.basicConfig(
     filename='replica_server.log',
@@ -20,9 +22,6 @@ DB_PATH = "./db_files/"
 class KeyValueStore:
     def __init__(self,
                  server_port,
-                 heartbeat_gap,
-                 prev_port=None,
-                 next_port=None,
                  debug_mode=False,
                  crash_db=True
                  ):
@@ -30,27 +29,13 @@ class KeyValueStore:
         Initialize the key-value store.
         Args:
             server_port: The port on which the server is running.
-            heartbeat_gap: The interval between heartbeats.
-            prev_port: The port of the previous server in the chain.
-            next_port: The port of the next server in the chain.
             debug_mode: Whether to print debug info.
             crash_db: Whether to clear the database(local file system) on failure.
         """
         
         self.db_file = os.path.join(DB_PATH, f"kvstore_{server_port}.db")
         self.port = server_port
-        self.master_stub: kvstore_pb2_grpc.MasterNodeStub = None
-        self.prev_stub : kvstore_pb2_grpc.KVStoreStub = None
-        self.next_stub : kvstore_pb2_grpc.KVStoreStub = None
-        self.heartbeat_gap = heartbeat_gap
         self.crash_db = crash_db
-        
-        assert not prev_port or not next_port, "Must be either head, tail or middle node"
-        if prev_port:
-            self.prev_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{prev_port}'))
-        if next_port:
-            self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{next_port}'))
-        self.master_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{server_port}'))
         
         try:
             self.conn = sqlite3.connect(self.db_file, check_same_thread=False)
@@ -60,34 +45,16 @@ class KeyValueStore:
                                  (key TEXT PRIMARY KEY, value TEXT)''')
             logging.info("Initialized KVStore")
         except sqlite3.Error as e:
-            logging.error(f"Database connection error for server {server_port}: {e}")
+            logging.error(f"Database connection error for server {self.port}: {e}")
             raise
         
-        # spawn another thread to send heartbeats every heartbeat_gap seconds
-        self.stop_event = threading.Event()
-        self.heartbeat_thread = threading.Thread(target=self.send_heartbeat)
-        self.heartbeat_thread.start()
-        
-    def send_heartbeat(self):
-        """Notify the master node that the server is alive in a "push" manner."""
-        while not self.stop_event.is_set():
-            try:
-                # Send heartbeat to master
-                logging.info(f"Heartbeat sent from server {self.port}")
-                ack = self.master_stub.GetHeartBeat(kvstore_pb2.HeartBeatRequest())
-                time.sleep(self.heartbeat_gap)  # Interval between heartbeats
-                return ack
-            except Exception as e:
-                logging.error(f"Server {self.port} failed to send heartbeat to master: {e}")
-                break
         
     def get(self, key):
         try:
             cursor = self.conn.execute("SELECT value FROM kvstore WHERE key=?", (key,))
             result = cursor.fetchone()
-            logging.info("Get KVStore for key: %s", key)
             if result:
-                logging.info("Result found: %s", result[0])
+                logging.info(f"Result for {key} found: {result[0]}")
                 return result[0], True
             return None, False
         except sqlite3.Error as e:
@@ -96,7 +63,6 @@ class KeyValueStore:
 
     def put(self, key, value):
         old_value, found = self.get(key)
-        logging.info("Put KVStore for key: %s", key)
         try:
             with self.conn:
                 if found:
@@ -109,6 +75,10 @@ class KeyValueStore:
             logging.error(f"Error writing to database for key '{key}': {e}")
             return None, False
 
+    def get_cursor(self):
+        """Return a cursor to traverse the database."""
+        return self.conn.cursor()
+        
     def crash(self):
         """
         Simulate the server crashing. 
@@ -119,58 +89,76 @@ class KeyValueStore:
             logging.info(f"Server {self.port} hit by a missile. All data lost.")
             self.conn.close()
             os.remove(self.db_file)
-            self.heartbeat_thread.join()
         else:
             logging.info("Server crashed.")
             self.conn.close()
-            self.heartbeat_thread.join()
             
 class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
     """gRPC server for the key-value store."""
 
-    def __init__(self, port, master_port, store: KeyValueStore, child_port=None):
-        self.port = port
-        self.master_port = master_port
-        self.child_port = child_port
+    def __init__(self,
+                 store: KeyValueStore,
+                 server: grpc.Server,
+                 master_port,
+                 heartbeat_gap=1,
+                 prev_port=None,
+                 next_port=None,
+                 ):
+        """
+        Initialize the key-value store servicer for gRPC comm.
+        Args:
+            store: The KeyValueStore object.
+            server: The gRPC server object.
+            master_port: The port of the master node.
+            heartbeat_gap: The interval between heartbeats.
+            prev_port: The port of the previous server in the chain.
+            next_port: The port of the next server in the chain.
+        """
+        self.port = store.port
         self.store = store
-        self.db_file = os.path.join(DB_PATH, f"kvstore_{port}.db")
-        self.master_stub = kvstore_pb2_grpc.MasterNodeStub(grpc.insecure_channel(f'localhost:{master_port}'))
+        self.server = server
+        self.master_port = master_port
+        self.heartbeat_gap = heartbeat_gap
+        self.db_file = os.path.join(DB_PATH, f"kvstore_{self.port}.db")
         
-        # Database connection
-        try:
-            self.conn = sqlite3.connect(self.db_file, check_same_thread=False)
-            self.conn.execute("PRAGMA journal_mode=WAL;")
-            self.conn.execute("PRAGMA busy_timeout = 5000;")
-            self.conn.execute('''CREATE TABLE IF NOT EXISTS kvstore
-                                 (key TEXT PRIMARY KEY, value TEXT)''')
-            logging.info(f"Server on port {self.port} initialized successfully.")
-        except sqlite3.Error as e:
-            logging.error(f"Database connection error on port {self.port}: {e}")
-            raise
-
+        # Init comm along the chain and to the master
+        self.master_stub = kvstore_pb2_grpc.MasterNodeStub(grpc.insecure_channel(f'localhost:{master_port}'))
+        assert prev_port or next_port, "Must be either head, tail or middle node"
+        self.prev_port = prev_port
+        self.next_port = next_port
+        
+        # NOTE: only forwarding, don't need previous stub (one-way linkedlist style chain)
+        # if prev_port:
+        #     self.prev_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{prev_port}'))
+        if next_port:
+            self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{next_port}'))
+            
         # Start heartbeat thread
-        self.stop_event = threading.Event()
+        self.stop_heartbeat = threading.Event()
         self.heartbeat_thread = threading.Thread(target=self.send_heartbeat)
         self.heartbeat_thread.start()
 
-    def send_heartbeat(self):
+    def send_heartbeat(self, is_alive=True):
         """Send heartbeat to master to signal that the server is alive."""
-        while not self.stop_event.is_set():
+        while not self.stop_heartbeat.is_set():
             try:
                 # Simulate sending a heartbeat to the master
                 logging.info(f"Heartbeat sent from server {self.port} to master {self.master_port}")
-                self.master_stub.GetHeartBeat(kvstore_pb2.HeartBeatRequest())
-                time.sleep(self.store.heartbeat_gap)  # Adjust heartbeat interval if needed
+                self.master_stub.GetHeartBeat(kvstore_pb2.HeartBeatRequest(is_alive=is_alive))
+                time.sleep(self.heartbeat_gap)  # Adjust heartbeat interval if needed
                 
             except Exception as e:
-                logging.error(f"Error in heartbeat thread on port {self.port}: {e}")
+                logging.error(f"Error in sending heartbeat heartbeat on port {self.port}: {e}")
                 break
 
     def Get(self, request, context):
         """Handle 'Get' requests."""
+        # Not tail, reject req and ask client to go to master for new tail.
+        if self.next_port is not None:
+            return kvstore_pb2.GetResponse(success=False)
+        
         try:
-            cursor = self.conn.execute("SELECT value FROM kvstore WHERE key=?", (request.key,))
-            result = cursor.fetchone()
+            result = self.store.get(request.key)
             if result:
                 logging.info(f"Get request for key: {request.key} - Found value: {result[0]}")
                 return kvstore_pb2.GetResponse(value=result[0], success=True)
@@ -183,40 +171,72 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
 
     def Put(self, request, context):
         """Handle 'Put' requests."""
+        # Not head, reject req and ask client to go to master for new head.
+        if self.prev_port is not None:
+            logging.info(f"Server on port {self.port} is not the head. Rejecting Put request.")
+            return kvstore_pb2.PutResponse(success=False)
+        
         try:
-            with self.conn:
-                self.conn.execute("INSERT OR REPLACE INTO kvstore (key, value) VALUES (?, ?)", 
-                                  (request.key, request.value))
-            logging.info(f"Put request - Key: {request.key}, Value: {request.value}")
-            return kvstore_pb2.PutResponse(success=True)
+            self.store.put(request.key, request.value)
+            # Forward to next in chain
+            self.ForwardToNext(request.key, request.value)
         except sqlite3.Error as e:
             logging.error(f"Error processing Put request for key {request.key}: {e}")
             return kvstore_pb2.PutResponse(success=False)
 
+
+    def ForwardToNext(self, key, value):
+        """Forward key-value pairs to the next node in the chain."""
+        if self.next_stub is not None:
+            self.next_stub.Put(kvstore_pb2.PutRequest(key=key, value=value))
+        
+        
+    def UpdateTail(self, request, context):
+        """Notifies the tail KV Store of a new replacement tail."""
+        if self.next_port is not None:
+            logging.info(f"Server {self.port} is not the tail. Rejecting update tail request.")
+            return kvstore_pb2.UpdateTailResponse(success=False)
+        self.next_port = request.tail_port 
+        self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
+        # Spawn another thread to forward all KV pairs to the new tail. Once done, return success.
+        for key, value in self.store.get_cursor().execute("SELECT * FROM kvstore"):
+            self.ForwardToNext(key, value)
+            
+        logging.info(f"Server {self.port} updated as the new tail.")
+        return kvstore_pb2.UpdateTailResponse(success=True)
+
+
     def Die(self, request, context):
         """Terminate the server to simulate failure."""
         logging.info(f"Server on port {self.port} crashed by request.")        
-        self.stop_event.set() # Ensure the heartbeat thread stops
+        self.stop_heartbeat.set() # Stops the heartbeat thread
         
+        if request.clean: # Notify master
+            self.send_heartbeat(is_alive=False)
         # Shut down the server
-        if hasattr(self, 'server'):
-            logging.info("Shutting down the server.")
-            self.server.stop(0)  # This will stop the server gracefully
-            self.store.crash()
-            logging.info("Server shut down successfully.")
-
+        self.server.stop(0)  # This will stop the server gracefully
+        self.store.crash()
+        logging.info("Server shut down successfully.")
+        
         context.set_code(grpc.StatusCode.OK)
         context.set_details("Server is shutting down.")
         return kvstore_pb2.DieResponse(success=True)
     
-
+    
+    
 def serve(args):
     """Run the gRPC server."""
-    port, master_port, child_port = args.port, args.master_port, args.next_port
+    port, master_port = args.port, args.master_port,
     
-    store = KeyValueStore(master_port, heartbeat_gap=args.timeout)
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    kvstore_servicer = KeyValueStoreServicer(port, master_port, store, child_port)
+    store = KeyValueStore(master_port, crash_db=args.crash_db)
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=5))
+    kvstore_servicer = KeyValueStoreServicer(store,
+                                             server,
+                                             master_port,
+                                             args.heartbeat_gap,
+                                             args.prev_port,
+                                             args.next_port
+                                            )
     kvstore_pb2_grpc.add_KVStoreServicer_to_server(kvstore_servicer, server)
 
     server.add_insecure_port(f'[::]:{port}')
@@ -226,17 +246,19 @@ def serve(args):
     try:
         server.wait_for_termination()
     except KeyboardInterrupt:
+        server.stop(0)
         logging.info(f"Server on port {port} shutting down.")
-        kvstore_servicer.stop_event.set()
+        kvstore_servicer.stop_heartbeat.set()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Start a replica server.')
     parser.add_argument('--port', type=int, required=True, help='Port to run the server on.')
     parser.add_argument('-m', '--master_port', type=int, required=True, help='Master node port.')
+    parser.add_argument("--prev_port", type=int, default=None, help='Port of the previous server in the chain (if any).')
     parser.add_argument('--next_port', type=int, default=None,
                         help='Child port of the next server in the chain (if any).')
-    parser.add_argument('-i', "--heartbeat_interval", type=int, default=1, help='Heartbeat interval in seconds.')
+    parser.add_argument('-i', "--heartbeat_gap", type=int, default=1, help='Heartbeat interval in seconds.')
     parser.add_argument("--crash_db", type=eval, default=True,
                         help="Whether to crash the database in failure simulation, which requires tail data forwarding to recover.")
     args = parser.parse_args()

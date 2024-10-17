@@ -65,7 +65,7 @@ class MasterNode:
                 cache TTL to ensure consistency (bring server back on line before cache is invalidated),
                 considering network latency/restart cost etc..
         """
-        self.servers = {} # {port: server object}
+        self.servers_procs = {} # {port: server object}
         self.timeout = timeout
         self.num_replicas = num_replicas
         self.heartbeats = {} # {port: timestamp}
@@ -73,6 +73,7 @@ class MasterNode:
         self.min_chain_len = math.ceil(args.num_replicas / 2)
         
         self.port = port
+        # make it a linked list
         self.child_ports = child_ports
         self.head_port = self.child_ports[0]
         self.tail_port = self.child_ports[-1]
@@ -105,25 +106,56 @@ class MasterNode:
     def spawn_servers(self):
         """Spawn the replica servers and initialize them with master and child ports."""
         for i, port in enumerate(self.child_ports):
-            child_port = self.child_ports[i + 1] if i < len(self.child_ports) - 1 else None  # Tail has no child
+            command = [
+                "python3", "replica_server.py",  # Launch the same server.py file
+                f"--port={port}", 
+                f"--master_port={self.port}",  # Pass the master port to the server
+                f"--crash_db={args.crash_db}"  # Whether to recover by chain forwarding
+            ]
+            # Chain structure
+            if i > 0:
+                command.append(f"--prev_port={self.child_ports[i - 1]})")
+            if i < len(self.child_ports) - 1:
+                command.append(f"--next_port={self.child_ports[i + 1]})")
+                
+            process = subprocess.Popen(command)  # Start the server as a subprocess
             # Spawn the server with the required configuration
-            process = self.start_server(port, child_port)
-            self.servers[port] = process  # Store the process object for management
-            logging.info(f"Server started on port {port} with child port {child_port}.")
+            self.servers_procs[port] = process  # Store the process object for management
+            self.server_stubs[port] = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{port}'))
+            logging.info(f"Server started on port {port} \
+                with prev_port={self.child_ports[i - 1]} and next_port={self.child_ports[i + 1]}"
+                )
             
-    # TODO: spawn replica servers and pass master & child port to them
-    def start_server(self, child_port, next_child_port=None):
-        """Start a replica server as a subprocess with the given ports."""
+    def replace_server(self, port, is_tail=False):
+        """Replace a failed server by appending a new one to tail, 
+            using the original port(as we run in a simulated LAN environment).
+            1. Reads the old database (when the node isn't totally destroyed)
+            2. Starts with an empty database, fetch data from previous node
+        """
+        # Kill the old server
+        self.servers_procs[port].kill()
+        # Start a new server on the same port
         command = [
             "python3", "replica_server.py",  # Launch the same server.py file
-            f"--port={child_port}", 
+            f"--port={port}", 
             f"--master_port={self.port}",  # Pass the master port to the server
             f"--crash_db={args.crash_db}"  # Whether to recover by chain forwarding
         ]
-        if next_child_port:
-            command.append(f"--child_port={next_child_port}")
-        return subprocess.Popen(command)  # Start the server as a subprocess
-    
+        # Chain structure
+        if port == self.head_port:
+            # remove the head from the list
+            self.child_ports.pop(0)
+            self.child_ports.append(port)
+        elif port == self.tail_port:
+            # remove the tail from the list
+            self.child_ports.pop(-1)
+            self.child_ports.insert(0, port)
+        command.append(f"--prev_port={self.tail_port})")
+        self.tail_port = port
+            
+        process = subprocess.Popen(command)
+        
+        
     def get_head(self):
         """Get the head node's address in the chain. If it is down, replace it by spawning a new server."""
         if not self.child_ports:
@@ -167,19 +199,14 @@ class MasterNode:
             tail_port = self.child_ports[-1]
             logging.info(f"New tail server spawned on port {tail_port}.")
         else:
-            logging.info(f"Tail server is alive on port {tail_port}.")
+            logging.info(f"Tail server is found on port {tail_port}.")
 
         hostname = socket.gethostname()
         return tail_port, hostname
 
+
+
     
-    def replace_server(self, port, is_tail=False):
-        """Replace a failed server with a new one. If the tail failed, 
-        the new server becomes the tail and either
-            1. Reads the old database (when the node isn't totally destroyed)
-            2. Starts with an empty database, fetch data from previous node
-        """
-        pass
     
 
 # TODO implement master servicer
@@ -236,7 +263,8 @@ def serve(args, ports):
         server.wait_for_termination()
         pass
     except KeyboardInterrupt:
-        logging.info(f"Server on port shutting down.")
+        logging.info(f"Master node shutting down.")
+        server.stop(0)
         # Remove all db files
         os.rmdir(DB_PATH)
         

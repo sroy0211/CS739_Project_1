@@ -2,11 +2,6 @@ syntax = "proto3";
 
 package kvstore;
 
-enum ReplicationMode {
-  QUORUM = 0;
-  RAFT = 1;
-}
-
 message GetRequest {
   string key = 1;
 }
@@ -81,7 +76,7 @@ message PingResponse {
 }
 
 message UpdateTailRequest {
-  int32 new_tail_port = 1;
+  int32 tail_port = 1; // port of the new tail
 }
 message UpdateTailResponse {
   bool success = 1;
@@ -99,8 +94,10 @@ service KVStore {
   rpc Die(DieRequest) returns (DieResponse);
   
   // New Ping RPC method
-  rpc Ping(PingRequest) returns (PingResponse); // Add this line
+  rpc Ping(PingRequest) returns (PingResponse);
   rpc UpdateTail(UpdateTailRequest) returns (UpdateTailResponse);
+  rpc UpdateHead(UpdateTailRequest) returns (UpdateTailResponse);
+  rpc ForwardToNext(PutRequest) returns (PutResponse);
 }
 
 

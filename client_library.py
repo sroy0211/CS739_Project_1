@@ -38,14 +38,17 @@ class Cache:
         self.cache.clear()
 
 class KV739Client:
-    def __init__(self, port, cache_size=100, ttl=0.2, use_cache=True):
+    def __init__(self, port, cache_size=100, ttl=0.2, use_cache=True, verbose=False):
         self.channels = []
         self.use_cache = use_cache
         self.cache = Cache(max_size=cache_size, ttl=ttl) if use_cache else None
         self.master_stub = None
-        self.head_stub = None
-        self.tail_stub = None
-
+        self.head_stub = self.head_port = None
+        self.tail_stub = self.tail_port = None
+        self.verbose = verbose
+        if not verbose:
+            logging.disable(logging.INFO)
+            
     def kv739_init(self, config_file):
         """Initialize connections to the master and tail servers."""
         try:
@@ -78,6 +81,7 @@ class KV739Client:
             response = self.master_stub.GetTail(kvstore_pb2.Empty())
             if response.success:
                 host, port = response.host, response.port
+                self.tail_port = port
                 logging.info(f"Retrieved tail address: {host}:{port}")
                 
                 # Check if tail_stub is already initialized; if not, create it
@@ -100,6 +104,7 @@ class KV739Client:
             response = self.master_stub.GetHead(kvstore_pb2.Empty())
             if response.success:
                 host, port = response.host, response.port
+                self.tail_port = port
                 logging.info(f"Retrieved head address: {host}:{port}")
 
                 # Check if head_stub is already initialized; if not, create it
@@ -116,23 +121,22 @@ class KV739Client:
         return None
 
 
-    def kv739_get(self, key, timeout=5):
+    def kv739_get(self, key, timeout=5, retries=3):
         """Fetches a key's value from the tail server."""
-        
         # Check if the value is in the cache
         if self.use_cache and (value := self.cache.get(key)) is not None:
             return 0, value
 
-        # Initialize tail stub if not already done
-        if not self.tail_stub:
-            self.tail_stub = self._get_tail_stub()
-            if not self.tail_stub:
-                logging.error(f"Client failed to initialize tail stub.")
-                return -1, ''  
-
         try:
+            # Initialize tail stub if not already done
+            if not self.tail_stub:
+                self.tail_stub = self._get_tail_stub()
             # Make a Get request to the tail server
             response = self.tail_stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
+            # if not success, reach master for tail
+            if not response.success:
+                self.tail_stub = None
+                return self.kv739_get(key, timeout, retries - 1)
             
             # Check if the key was found and handle the response
             if response.found:
@@ -146,25 +150,26 @@ class KV739Client:
             logging.error(f"GET operation failed: {e}")
             self.tail_stub = None  # Reset tail stub on error
             self.cache.clear()  # Clear the cache on error
-            return self.kv739_get(key, timeout)  # Retry the operation
+            if retries > 0:
+                return self.kv739_get(key, timeout, retries - 1)
+            else:
+                return -2, ''  # Return -2 on communication failure
+            
 
 
     def kv739_put(self, key, value, timeout=5, retries=3):
         """Performs a PUT operation using the head server."""
-        # Ensure the head stub is available
-        if not self.head_stub:
-            self.head_stub = self._get_head_stub()
-            if not self.head_stub:
-                logging.error("Failed to get head stub.")
-                return -1, ''  # Internal error
-
         try:
-            # Create the PutRequest object
-            request = kvstore_pb2.PutRequest(key=key, value=value)
-
-            # Send the request to the head node
-            response = self.head_stub.Put(request, timeout=timeout)
-
+            # Ensure the head stub is available
+            if not self.head_stub:
+                self.head_stub = self._get_head_stub()
+            response = self.head_stub.Put(kvstore_pb2.PutRequest(key=key, value=value), timeout=timeout)
+            # Get new head from master
+            if not response.success:
+                logging.info(f"Head server {self.head_port} rejected the request. Reaching master for new head.")
+                self.head_stub = None
+                return self.kv739_put(key, value, timeout, retries - 1)
+            
             # Check if an old value was found and the operation succeeded
             if response.old_value_found:
                 old_value = response.old_value
@@ -275,6 +280,7 @@ if __name__ == "__main__":
     parser.add_argument('--cache_size', type=int, default=100, help='Maximum size of the cache (default: 100 entries)')
     parser.add_argument('--ttl', type=float, default=0.2, help='Time-to-Live for cache entries in seconds (default: 0.2)')
     parser.add_argument('--use_cache', action='store_true', help='Enable client-side cache')
+    parser.add_argument('--verbose', default=True, type=eval, help='Enable debug logging')
 
     args = parser.parse_args()
 
@@ -287,7 +293,7 @@ if __name__ == "__main__":
         logging.error("Invalid operation: For GET, the key must be more than 2048 bytes long.")
         exit(1)
 
-    client = KV739Client(cache_size=args.cache_size, ttl=args.ttl, use_cache=args.use_cache)
+    client = KV739Client(cache_size=args.cache_size, ttl=args.ttl, use_cache=args.use_cache, verbose=args.verbose)
 
     if args.config_file:
         status = client.kv739_init(args.config_file)
