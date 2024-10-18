@@ -127,9 +127,8 @@ class MasterNode:
             # Spawn the server with the required configuration
             self.servers_procs[port] = process  # Store the process object for management
             self.server_stubs[port] = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{port}'))
-            logging.info(f"Server started on port {port} \
-                with prev_port={self.child_ports[i - 1]} and next_port={self.child_ports[i + 1]}"
-                )
+            
+        logging.info(f"Replicas spawn from port {self.child_ports[0]} to {self.child_ports[-1]}")
             
     def replace_server(self, port, is_tail=False):
         """Replace a failed server by appending a new one to tail, 
@@ -259,7 +258,7 @@ def serve(args, ports):
                              verbose=args.verbose
                             )
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
-    kvstore_pb2_grpc.add_KVStoreServicer_to_server(MasterServicer(server, master_node), server)
+    kvstore_pb2_grpc.add_MasterNodeServicer_to_server(MasterServicer(server, master_node), server)
 
     server.add_insecure_port(f'[::]:{master_port}')
     server.start()
@@ -285,12 +284,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
         
     create_config_file()  # You can specify the filename and num_replicas if needed
-    try:
-        ports = read_config_file()
-        print("Configuration loaded:", ports)
-        serve(args, ports)
-    except Exception as e:
-        print("Error:", e)
+    # try:
+    ports = read_config_file()
+    print("Configuration loaded:", ports)
+    serve(args, ports)
+    # except Exception as e:
+    #     print("Error:", e)
 
-    else:
-        print("Master Server not started")
+    # else:
+    #     print("Master Server not started")
