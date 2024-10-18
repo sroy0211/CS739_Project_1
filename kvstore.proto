@@ -48,14 +48,6 @@ message BatchPutResponse {
   map<string, PutResponse> results = 1;
 }
 
-message SetReplicationModeRequest {
-  ReplicationMode mode = 1;
-}
-
-message SetReplicationModeResponse {
-  bool success = 1;
-}
-
 // New message types for the Die functionality
 message DieRequest {
   bool clean = 1; // Added clean field to indicate the shutdown type
@@ -88,7 +80,6 @@ service KVStore {
   rpc Delete(DeleteRequest) returns (DeleteResponse);
   rpc BatchGet(BatchGetRequest) returns (BatchGetResponse);
   rpc BatchPut(BatchPutRequest) returns (BatchPutResponse);
-  rpc SetReplicationMode(SetReplicationModeRequest) returns (SetReplicationModeResponse);  // To dynamically switch replication modes
   rpc PutToNext(PutRequest) returns (PutResponse);  // To forward Put requests to the next node in the chain
   // New Die RPC method
   rpc Die(DieRequest) returns (DieResponse);
@@ -102,12 +93,14 @@ service KVStore {
 
 
 message GetHeadRequest{
+  bool replace = 1;
 }
 message GetHeadResponse{
   int32 port = 1; 
   string hostname = 2; // not needed for p2 running on localhost
 }
 message GetTailRequest{
+  bool replace = 1;
 }
 message GetTailResponse{
   int32 port = 1;

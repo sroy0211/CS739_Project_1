@@ -48,26 +48,32 @@ class KV739Client:
         self.verbose = verbose
         if not verbose:
             logging.disable(logging.INFO)
-            
+        self.initialized = False
+        
+        
     def kv739_init(self, config_file):
         """Initialize connections to the master and tail servers."""
         try:
             with open(config_file, 'r') as f:
-                config = json.load(f)  # Load the JSON content
-
-            master_port = config['master_port']
-            tail_port = config['child_ports'][-1]  # Assuming the last child is the tail server
+                config = json.load(f) 
 
             # Connect to the master server
+            master_port = config['master_port']
             master_channel = grpc.insecure_channel(f'localhost:{master_port}')
             self.master_stub = kvstore_pb2_grpc.MasterNodeStub(master_channel)
             logging.info(f"Connected to master server at port: {master_port}")
 
             # Connect to the tail server
+            tail_port = config['child_ports'][-1]  
             tail_channel = grpc.insecure_channel(f'localhost:{tail_port}')
             self.tail_stub = kvstore_pb2_grpc.KVStoreStub(tail_channel)
             logging.info(f"Connected to tail server at port: {tail_port}")
 
+            head_port = config['child_ports'][0]
+            self.head_port = head_port
+            logging.info(f"Connected to head server port: {head_port}")
+            
+            self.initialized = True
             return 0
 
         except Exception as e:
@@ -75,10 +81,10 @@ class KV739Client:
             return -1
 
 
-    def _get_tail_stub(self):
+    def _get_tail_stub(self, replace=False):
         """Fetches the tail address from the master and returns the tail stub."""
         try:
-            response = self.master_stub.GetTail(kvstore_pb2.Empty())
+            response = self.master_stub.GetTail(kvstore_pb2.GetTailRequest(replace=replace))
             if response.success:
                 host, port = response.host, response.port
                 self.tail_port = port
@@ -98,10 +104,10 @@ class KV739Client:
         return None
 
 
-    def _get_head_stub(self):
+    def _get_head_stub(self, replace=False):
         """Fetches the head address from the master and returns the head stub."""
         try:
-            response = self.master_stub.GetHead(kvstore_pb2.Empty())
+            response = self.master_stub.GetHead(kvstore_pb2.GetHeadRequest(replace=replace))
             if response.success:
                 host, port = response.host, response.port
                 self.tail_port = port
@@ -123,19 +129,19 @@ class KV739Client:
 
     def kv739_get(self, key, timeout=5, retries=3):
         """Fetches a key's value from the tail server."""
+        if not self.initialized:
+            raise Exception("Client not initialized. Call kv739_init() first.")
+        
         # Check if the value is in the cache
         if self.use_cache and (value := self.cache.get(key)) is not None:
             return 0, value
 
         try:
-            # Initialize tail stub if not already done
-            if not self.tail_stub:
-                self.tail_stub = self._get_tail_stub()
             # Make a Get request to the tail server
             response = self.tail_stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
             # if not success, reach master for tail
             if not response.success:
-                self.tail_stub = None
+                self._get_tail_stub()
                 return self.kv739_get(key, timeout, retries - 1)
             
             # Check if the key was found and handle the response
@@ -148,7 +154,7 @@ class KV739Client:
         
         except grpc.RpcError as e:
             logging.error(f"GET operation failed: {e}")
-            self.tail_stub = None  # Reset tail stub on error
+            self._get_tail_stub(replace=True)  # Tail server crashed
             self.cache.clear()  # Clear the cache on error
             if retries > 0:
                 return self.kv739_get(key, timeout, retries - 1)
@@ -156,18 +162,17 @@ class KV739Client:
                 return -2, ''  # Return -2 on communication failure
             
 
-
     def kv739_put(self, key, value, timeout=5, retries=3):
         """Performs a PUT operation using the head server."""
+        if not self.initialized:
+            raise Exception("Client not initialized. Call kv739_init() first.")
+        
         try:
-            # Ensure the head stub is available
-            if not self.head_stub:
-                self.head_stub = self._get_head_stub()
             response = self.head_stub.Put(kvstore_pb2.PutRequest(key=key, value=value), timeout=timeout)
             # Get new head from master
             if not response.success:
                 logging.info(f"Head server {self.head_port} rejected the request. Reaching master for new head.")
-                self.head_stub = None
+                self._get_head_stub()
                 return self.kv739_put(key, value, timeout, retries - 1)
             
             # Check if an old value was found and the operation succeeded
@@ -181,7 +186,8 @@ class KV739Client:
 
         except grpc.RpcError as e:
             logging.error(f"PUT operation failed: {e}")
-
+            
+            self._get_head_stub(replace=True)  # Old head crashed 
             if retries > 0:
                 self.head_stub = None  # Reset head stub for next attempt
                 logging.info(f"Retrying... attempts left: {retries}")
@@ -193,7 +199,6 @@ class KV739Client:
         except Exception as e:
             logging.error(f"Unexpected error: {e}")
             return -1, ''  # Return -1 on any other internal error
-
 
 
     def kv739_shutdown(self):
@@ -275,7 +280,7 @@ if __name__ == "__main__":
     parser.add_argument('key', help='The key for the GET/PUT operation or the server port for DIE')
     parser.add_argument('value', nargs='?', default='', help='The value for the PUT operation (optional for GET)')
     parser.add_argument('--clean', type=int, choices=[0, 1], help='Clean termination (1 for clean, 0 for immediate)')
-    parser.add_argument('--config_file', type=str, default="server_config.txt", help='Path to config file with server instances')
+    parser.add_argument('--config_file', type=str, default="server_config.json", help='Path to config file with server instances')
     parser.add_argument('--timeout', type=int, default=5, help='Timeout for the GET operation (default: 5 seconds)')
     parser.add_argument('--cache_size', type=int, default=100, help='Maximum size of the cache (default: 100 entries)')
     parser.add_argument('--ttl', type=float, default=0.2, help='Time-to-Live for cache entries in seconds (default: 0.2)')

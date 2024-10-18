@@ -79,6 +79,9 @@ class KeyValueStore:
         """Return a cursor to traverse the database."""
         return self.conn.cursor()
         
+    def get_new_connection(self):
+        return sqlite3.connect(self.db_file, check_same_thread=False)
+
     def crash(self):
         """
         Simulate the server crashing. 
@@ -126,6 +129,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         assert prev_port or next_port, "Must be either head, tail or middle node"
         self.prev_port = prev_port
         self.next_port = next_port
+        self.is_tail = not next_port
         
         # NOTE: only forwarding, don't need previous stub (one-way linkedlist style chain)
         # if prev_port:
@@ -154,7 +158,8 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
     def Get(self, request, context):
         """Handle 'Get' requests."""
         # Not tail, reject req and ask client to go to master for new tail.
-        if self.next_port is not None:
+        if not self.is_tail:
+            logging.info(f"Server on port {self.port} is not the tail. Rejecting Get request.")
             return kvstore_pb2.GetResponse(success=False)
         
         try:
@@ -188,21 +193,41 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
     def ForwardToNext(self, key, value):
         """Forward key-value pairs to the next node in the chain."""
         if self.next_stub is not None:
-            self.next_stub.Put(kvstore_pb2.PutRequest(key=key, value=value))
+            response = self.next_stub.Put(kvstore_pb2.PutRequest(key=key, value=value))
         
+    def ForwardAll(self, ):
+        """
+        Forward all key-value pairs to the new tail node in the chain.
+        Upon completion, relinquish the tail status.
+        """
+        assert self.next_stub, "Next stub not initialized."
+        conn = self.store.get_new_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT key, value FROM kvstore")
+            rows = cursor.fetchall()
+            for key, value in rows:
+                self.ForwardToNext(key, value)
+        except Exception as e:
+            logging.error(f"Error in ForwardAll: {e}")
+        finally:
+            cursor.close()
+            conn.close()
+            self.is_tail = False # Relinquish tail status
+            logging.info(f"Server {self.port} data forwarding to new tail completed.")
         
+                            
     def UpdateTail(self, request, context):
         """Notifies the tail KV Store of a new replacement tail."""
-        if self.next_port is not None:
+        if not self.is_tail:
             logging.info(f"Server {self.port} is not the tail. Rejecting update tail request.")
             return kvstore_pb2.UpdateTailResponse(success=False)
+        
         self.next_port = request.tail_port 
         self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
         # Spawn another thread to forward all KV pairs to the new tail. Once done, return success.
-        for key, value in self.store.get_cursor().execute("SELECT * FROM kvstore"):
-            self.ForwardToNext(key, value)
-            
-        logging.info(f"Server {self.port} updated as the new tail.")
+        threading.Thread(target=self.ForwardAll).start()
+        logging.info(f"Server {self.port} forwarding data to new tail.")
         return kvstore_pb2.UpdateTailResponse(success=True)
 
 
@@ -261,7 +286,10 @@ if __name__ == '__main__':
     parser.add_argument('-i', "--heartbeat_gap", type=int, default=1, help='Heartbeat interval in seconds.')
     parser.add_argument("--crash_db", type=eval, default=True,
                         help="Whether to crash the database in failure simulation, which requires tail data forwarding to recover.")
+    parser.add_argument("--verbose", type=eval, default=True, help="Whether to print debug info.")
     args = parser.parse_args()
+    if not args.verbose:
+        logging.disable(logging.INFO)
 
     # Ensure the DB directory exists
     os.makedirs(DB_PATH, exist_ok=True)

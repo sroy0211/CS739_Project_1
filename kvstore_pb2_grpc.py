@@ -39,11 +39,6 @@ class KVStoreStub(object):
                 request_serializer=kvstore__pb2.BatchPutRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.BatchPutResponse.FromString,
                 )
-        self.SetReplicationMode = channel.unary_unary(
-                '/kvstore.KVStore/SetReplicationMode',
-                request_serializer=kvstore__pb2.SetReplicationModeRequest.SerializeToString,
-                response_deserializer=kvstore__pb2.SetReplicationModeResponse.FromString,
-                )
         self.PutToNext = channel.unary_unary(
                 '/kvstore.KVStore/PutToNext',
                 request_serializer=kvstore__pb2.PutRequest.SerializeToString,
@@ -63,6 +58,16 @@ class KVStoreStub(object):
                 '/kvstore.KVStore/UpdateTail',
                 request_serializer=kvstore__pb2.UpdateTailRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.UpdateTailResponse.FromString,
+                )
+        self.UpdateHead = channel.unary_unary(
+                '/kvstore.KVStore/UpdateHead',
+                request_serializer=kvstore__pb2.UpdateTailRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.UpdateTailResponse.FromString,
+                )
+        self.ForwardToNext = channel.unary_unary(
+                '/kvstore.KVStore/ForwardToNext',
+                request_serializer=kvstore__pb2.PutRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.PutResponse.FromString,
                 )
 
 
@@ -99,13 +104,6 @@ class KVStoreServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def SetReplicationMode(self, request, context):
-        """To dynamically switch replication modes
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
     def PutToNext(self, request, context):
         """To forward Put requests to the next node in the chain
         """
@@ -122,13 +120,24 @@ class KVStoreServicer(object):
 
     def Ping(self, request, context):
         """New Ping RPC method
-        Add this line
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def UpdateTail(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateHead(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ForwardToNext(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -162,11 +171,6 @@ def add_KVStoreServicer_to_server(servicer, server):
                     request_deserializer=kvstore__pb2.BatchPutRequest.FromString,
                     response_serializer=kvstore__pb2.BatchPutResponse.SerializeToString,
             ),
-            'SetReplicationMode': grpc.unary_unary_rpc_method_handler(
-                    servicer.SetReplicationMode,
-                    request_deserializer=kvstore__pb2.SetReplicationModeRequest.FromString,
-                    response_serializer=kvstore__pb2.SetReplicationModeResponse.SerializeToString,
-            ),
             'PutToNext': grpc.unary_unary_rpc_method_handler(
                     servicer.PutToNext,
                     request_deserializer=kvstore__pb2.PutRequest.FromString,
@@ -186,6 +190,16 @@ def add_KVStoreServicer_to_server(servicer, server):
                     servicer.UpdateTail,
                     request_deserializer=kvstore__pb2.UpdateTailRequest.FromString,
                     response_serializer=kvstore__pb2.UpdateTailResponse.SerializeToString,
+            ),
+            'UpdateHead': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateHead,
+                    request_deserializer=kvstore__pb2.UpdateTailRequest.FromString,
+                    response_serializer=kvstore__pb2.UpdateTailResponse.SerializeToString,
+            ),
+            'ForwardToNext': grpc.unary_unary_rpc_method_handler(
+                    servicer.ForwardToNext,
+                    request_deserializer=kvstore__pb2.PutRequest.FromString,
+                    response_serializer=kvstore__pb2.PutResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -283,23 +297,6 @@ class KVStore(object):
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def SetReplicationMode(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/SetReplicationMode',
-            kvstore__pb2.SetReplicationModeRequest.SerializeToString,
-            kvstore__pb2.SetReplicationModeResponse.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
-
-    @staticmethod
     def PutToNext(request,
             target,
             options=(),
@@ -364,6 +361,40 @@ class KVStore(object):
         return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/UpdateTail',
             kvstore__pb2.UpdateTailRequest.SerializeToString,
             kvstore__pb2.UpdateTailResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def UpdateHead(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/UpdateHead',
+            kvstore__pb2.UpdateTailRequest.SerializeToString,
+            kvstore__pb2.UpdateTailResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def ForwardToNext(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/ForwardToNext',
+            kvstore__pb2.PutRequest.SerializeToString,
+            kvstore__pb2.PutResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
