@@ -119,9 +119,9 @@ class MasterNode:
             ]
             # Chain structure
             if i > 0:
-                command.append(f"--prev_port={self.child_ports[i - 1]})")
+                command.append(f"--prev_port={self.child_ports[i - 1]}")
             if i < len(self.child_ports) - 1:
-                command.append(f"--next_port={self.child_ports[i + 1]})")
+                command.append(f"--next_port={self.child_ports[i + 1]}")
                 
             process = subprocess.Popen(command)  # Start the server as a subprocess
             # Spawn the server with the required configuration
