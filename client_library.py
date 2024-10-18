@@ -50,7 +50,6 @@ class KV739Client:
             logging.disable(logging.INFO)
         self.initialized = False
         
-        
     def kv739_init(self, config_file):
         """Initialize connections to the master and tail servers."""
         try:
@@ -80,7 +79,6 @@ class KV739Client:
             logging.error(f"Error reading config file '{config_file}': {e}")
             return -1
 
-
     def _get_tail_stub(self, replace=False):
         """Fetches the tail address from the master and returns the tail stub."""
         try:
@@ -102,7 +100,6 @@ class KV739Client:
             logging.error(f"Error during GetTail call: {e}")
             
         return None
-
 
     def _get_head_stub(self, replace=False):
         """Fetches the head address from the master and returns the head stub."""
@@ -126,6 +123,26 @@ class KV739Client:
 
         return None
 
+    def _get_middle_stub(self):
+        """Fetches the middle server's stub from the master."""
+        try:
+            response = self.master_stub.GetMiddle(kvstore_pb2.GetMiddleRequest())
+            if response.success:
+                host, port = response.host, response.port
+                logging.info(f"Retrieved middle address: {host}:{port}")
+                
+                # Check if middle_stub is already initialized; if not, create it
+                if self.middle_stub is None:
+                    middle_channel = grpc.insecure_channel(f'{host}:{port}')
+                    self.middle_stub = kvstore_pb2_grpc.KVStoreStub(middle_channel)
+                    logging.info(f"Initialized middle stub for: {host}:{port}")
+                    
+                return self.middle_stub
+
+        except grpc.RpcError as e:
+            logging.error(f"Error during GetMiddle call: {e}")
+
+        return None
 
     def kv739_get(self, key, timeout=5, retries=3):
         """Fetches a key's value from the tail server."""
@@ -229,36 +246,73 @@ class KV739Client:
         return 0  # Return success
 
 
-    def kv739_die(self, server_names, clean=False):
-        """Sends termination requests to the specified servers."""
-        if isinstance(server_names, str):
-            server_names = [server_names]
-
-        success_count = 0  # Count successful terminations
-
-        for server_name in server_names:
-            try:
-                host, port = server_name.split(':')
-                channel = grpc.insecure_channel(f'{host}:{port}')
-                stub = kvstore_pb2_grpc.KVStoreStub(channel)
-                request = kvstore_pb2.DieRequest(clean=clean)
-
-                # Send the Die request to the server
-                stub.Die(request)
-                logging.info(f"Terminated server {server_name} with clean={clean}")
-                success_count += 1  # Increment success count
-                
-            except grpc.RpcError as e:
-                logging.error(f"Error terminating {server_name}: {e}")
-                # Return -1 on the first failure
-                return -1
-            finally:
-                channel.close()  # Close the channel to free resources
-
-        # Return 0 if at least one server was successfully contacted
-        return 0 if success_count > 0 else -1
-
-
+    def kv739_die(self, server_name: str, clean: int = 0):
+        """Kills the specified server using its stub."""
+        if not self.initialized:
+            raise Exception("Client not initialized. Call kv739_init() first.")
+    
+        try:
+            if server_name == 'master':
+                # Use the existing master stub directly
+                logging.info(f"Attempting to kill the Master Server...")
+                if clean == 1:
+                    # Allow the master server to clean up before shutting down
+                    die_request = kvstore_pb2.DieRequest(clean=True)
+                    self.master_stub.Die(die_request)
+                    logging.info(f"Master Server terminated cleanly.")
+                else:
+                    # Force the master server to exit immediately
+                    logging.info(f"Forcing Master Server to terminate immediately.")
+                    self.master_stub.Die(kvstore_pb2.DieRequest(clean=False))  # Informing the server to exit immediately
+                    sys.exit()  # Terminate immediately
+    
+            elif server_name == 'middle':
+                # Use the existing method to get the middle server's stub
+                middle_stub = self._get_middle_stub()
+                if middle_stub is None:
+                    logging.error("Failed to retrieve middle server stub.")
+                    return -1
+    
+                logging.info(f"Attempting to kill the Middle Server...")
+                if clean == 1:
+                    # Allow the middle server to clean up before shutting down
+                    die_request = kvstore_pb2.DieRequest(clean=True)
+                    middle_stub.Die(die_request)
+                    logging.info("Middle Server terminated cleanly.")
+                else:
+                    # Force the middle server to exit immediately
+                    logging.info("Forcing Middle Server to terminate immediately.")
+                    middle_stub.Die(kvstore_pb2.DieRequest(clean=False))
+                    sys.exit()  # Terminate immediately
+    
+            elif server_name == 'tail':
+                # Use the existing method to get the tail server's stub
+                tail_stub = self._get_tail_stub()
+                if tail_stub is None:
+                    logging.error("Failed to retrieve tail server stub.")
+                    return -1
+    
+                logging.info(f"Attempting to kill the Tail Server...")
+                if clean == 1:
+                    # Allow the tail server to clean up before shutting down
+                    die_request = kvstore_pb2.DieRequest(clean=True)
+                    tail_stub.Die(die_request)
+                    logging.info("Tail Server terminated cleanly.")
+                else:
+                    # Force the tail server to exit immediately
+                    logging.info("Forcing Tail Server to terminate immediately.")
+                    tail_stub.Die(kvstore_pb2.DieRequest(clean=False))
+                    sys.exit()  # Terminate immediately
+    
+            return 0  # Success
+    
+        except grpc.RpcError as e:
+            logging.error(f"gRPC error while killing {server_name} server: {e}")
+            return -1  # Failure on gRPC error
+    
+        except Exception as e:
+            logging.error(f"Unexpected error while killing {server_name} server: {e}")
+            return -1  # Failure on other exceptions
 
 def is_valid_key(key):
     """Validate key constraints."""
@@ -277,7 +331,8 @@ def is_valid_value(value):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='KV739 Client Operations')
     parser.add_argument('operation', choices=['get', 'put', 'die'], help='Specify the operation (get, put, die)')
-    parser.add_argument('key', help='The key for the GET/PUT operation or the server port for DIE')
+    parser.add_argument('key', help='The key for the GET/PUT operation')
+    parser.add_argument('server_name', choices=['master', 'middle', 'tail'], help='The server type to terminate (e.g., "master", "middle", or "tail") for die function')
     parser.add_argument('value', nargs='?', default='', help='The value for the PUT operation (optional for GET)')
     parser.add_argument('--clean', type=int, choices=[0, 1], help='Clean termination (1 for clean, 0 for immediate)')
     parser.add_argument('--config_file', type=str, default="server_config.json", help='Path to config file with server instances')
@@ -321,7 +376,7 @@ if __name__ == "__main__":
             client.kv739_get(args.key, args.timeout)
         elif args.operation == 'die':
             if args.clean is not None:
-                client.kv739_die(args.key, args.clean)
+                client.kv739_die(args.server_name, args.clean)
             else:
                 logging.error("DIE operation requires --clean argument (0 or 1).")
 
