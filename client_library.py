@@ -60,25 +60,24 @@ class KV739Client:
                 config = json.load(f) 
 
             # Connect to the master server
-            master_port = config['master_port']
-            master_channel = grpc.insecure_channel(f'localhost:{master_port}')
+            self.master_port = config['master_port']
+            master_channel = grpc.insecure_channel(f'localhost:{self.master_port}')
             self.master_stub = kvstore_pb2_grpc.MasterNodeStub(master_channel)
-            logging.info(f"Connected to master server at port: {master_port}")
+            logging.info(f"Connected to master server at port: {self.master_port}")
 
             # Connect to the tail server
-            tail_port = config['child_ports'][-1]  
-            tail_channel = grpc.insecure_channel(f'localhost:{tail_port}')
+            self.tail_port = config['child_ports'][-1]  
+            tail_channel = grpc.insecure_channel(f'localhost:{self.tail_port}')
             self.tail_stub = kvstore_pb2_grpc.KVStoreStub(tail_channel)
-            logging.info(f"Connected to tail server at port: {tail_port}")
+            logging.info(f"Connected to tail server at port: {self.tail_port}")
 
-            head_port = config['child_ports'][0]
-            self.head_port = head_port
-            self.head_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{head_port}'))
-            logging.info(f"Connected to head server port: {head_port}")
+            self.head_port = config['child_ports'][0]
+            self.head_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.head_port}'))
+            logging.info(f"Connected to head server port: {self.head_port}")
             
             self.initialized = True
             return 0
-
+    
         except Exception as e:
             logging.error(f"Error reading config file '{config_file}': {e}")
             return -1
@@ -159,6 +158,7 @@ class KV739Client:
             response = self.tail_stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
             # if not success, reach master for tail
             if not response.success:
+                logging.info(f"Tail server {self.tail_port} rejected the request. Remaining retries: {retries}")
                 self._get_tail_stub()
                 return self.kv739_get(key, timeout, retries - 1)
             
@@ -166,9 +166,11 @@ class KV739Client:
             if response.found:
                 if self.use_cache:
                     self.cache.put(key, response.value)  # Cache the value if caching is enabled
+                logging.info(f"Successfully retrieved key '{key}' with value '{response.value}' from tail server {self.tail_port}")
                 return 0, response.value  # Return success and the value
-            
-            return 1, ''  # Key not found, return code 1
+            else:
+                logging.info(f"Key '{key}' not found at tail server {self.tail_port}")
+                return 1, ''  # Key not found, return code 1
         
         except grpc.RpcError as e:
             logging.error(f"GET operation failed: {e}")
@@ -178,7 +180,10 @@ class KV739Client:
                 return self.kv739_get(key, timeout, retries - 1)
             else:
                 return -2, ''  # Return -2 on communication failure
-            
+        
+        except Exception as e:
+            logging.error(f"Unexpected error: {e} in contacting tail server {self.tail_port}")
+            return -1, ''
 
     def kv739_put(self, key, value, timeout=5, retries=3):
         """Performs a PUT operation using the head server."""
@@ -196,10 +201,10 @@ class KV739Client:
             # Check if an old value was found and the operation succeeded
             if response.old_value_found:
                 old_value = response.old_value
-                logging.info(f"Updated key '{key}' from old value '{old_value}' to new value '{value}'")
+                logging.info(f"Updated key '{key}' from old value '{old_value}' to new value '{value}' at head server {self.head_port}")
                 return 0, old_value  # Return 0 on success with old value
             else:
-                logging.info(f"Successfully put key '{key}' with new value '{value}'")
+                logging.info(f"Successfully put key '{key}' with new value '{value}' at head server {self.head_port}")
                 return 1, ''  # Return 1 on success without old value
 
         except grpc.RpcError as e:
@@ -213,9 +218,9 @@ class KV739Client:
             logging.error("Max retries exceeded; operation failed.")
             return -2, ''  # Return -2 on communication failure
 
-        # except Exception as e:
-        #     logging.error(f"Unexpected error: {e}")
-        #     return -1, ''  # Return -1 on any other internal error
+        except Exception as e:
+            logging.error(f"Unexpected error: {e} in contacting head server {self.head_port}")
+            return -1, ''  # Return -1 on any other internal error
 
 
     def kv739_shutdown(self):
@@ -335,9 +340,6 @@ if __name__ == "__main__":
         exit(1)  # Exit if the key is invalid
     if args.operation == 'put' and not is_valid_value(args.value):
         exit(1)  # Exit if the value is invalid for PUT
-    if args.operation == 'get' and len(args.key) <= 2048:  # The string must be at least 1 byte larger than the max value size
-        logging.error("Invalid operation: For GET, the key must be more than 2048 bytes long.")
-        exit(1)
 
     client = KV739Client(cache_size=args.cache_size, ttl=args.ttl, use_cache=args.use_cache, verbose=args.verbose)
 
@@ -348,14 +350,21 @@ if __name__ == "__main__":
         exit(1)
 
     if status == 0:
-        logging.info("Connected to server.")
+        logging.info("Client initialized.")
         if args.operation == 'put':
             if args.value:
                 client.kv739_put(args.key, args.value, args.timeout)
             else:
                 logging.error("PUT operation requires both key and value.")
         elif args.operation == 'get':
-            client.kv739_get(args.key, args.timeout)
+            return_code, value = client.kv739_get(args.key, args.timeout)
+            if args.verbose and return_code == 0:
+                logging.info(f"Client retrieved {args.key}: {value}")
+            elif return_code == 1:
+                logging.info(f"Key '{args.key}' not found.")
+            else:
+                logging.error(f"GET operation failed for key '{args.key}'.")
+                
         elif args.operation == 'die':
             if args.clean is not None:
                 client.kv739_die(args.kill_type, args.clean)
