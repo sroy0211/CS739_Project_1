@@ -6,6 +6,7 @@ import argparse
 import time
 from collections import OrderedDict
 import json
+import sys
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -38,7 +39,7 @@ class Cache:
         self.cache.clear()
 
 class KV739Client:
-    def __init__(self, port, cache_size=100, ttl=0.2, use_cache=True, verbose=False):
+    def __init__(self, cache_size=100, ttl=0.2, use_cache=True, verbose=False, retries=4):
         self.channels = []
         self.use_cache = use_cache
         self.cache = Cache(max_size=cache_size, ttl=ttl) if use_cache else None
@@ -46,6 +47,8 @@ class KV739Client:
         self.head_stub = self.head_port = None
         self.tail_stub = self.tail_port = None
         self.verbose = verbose
+        self.retries = retries
+        
         if not verbose:
             logging.disable(logging.INFO)
         self.initialized = False
@@ -70,6 +73,7 @@ class KV739Client:
 
             head_port = config['child_ports'][0]
             self.head_port = head_port
+            self.head_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{head_port}'))
             logging.info(f"Connected to head server port: {head_port}")
             
             self.initialized = True
@@ -83,18 +87,17 @@ class KV739Client:
         """Fetches the tail address from the master and returns the tail stub."""
         try:
             response = self.master_stub.GetTail(kvstore_pb2.GetTailRequest(replace=replace))
-            if response.success:
-                host, port = response.host, response.port
-                self.tail_port = port
-                logging.info(f"Retrieved tail address: {host}:{port}")
+            host, port = response.hostname, response.port
+            self.tail_port = port
+            logging.info(f"Retrieved tail address: {host}:{port}")
+            
+            # Check if tail_stub is already initialized; if not, create it
+            if self.tail_stub is None:
+                tail_channel = grpc.insecure_channel(f'{host}:{port}')
+                self.tail_stub = kvstore_pb2_grpc.KVStoreStub(tail_channel)
+                logging.info(f"Initialized tail stub for: {host}:{port}")
                 
-                # Check if tail_stub is already initialized; if not, create it
-                if self.tail_stub is None:
-                    tail_channel = grpc.insecure_channel(f'{host}:{port}')
-                    self.tail_stub = kvstore_pb2_grpc.KVStoreStub(tail_channel)
-                    logging.info(f"Initialized tail stub for: {host}:{port}")
-                    
-                return self.tail_stub
+            return self.tail_stub
 
         except grpc.RpcError as e:
             logging.error(f"Error during GetTail call: {e}")
@@ -105,16 +108,15 @@ class KV739Client:
         """Fetches the head address from the master and returns the head stub."""
         try:
             response = self.master_stub.GetHead(kvstore_pb2.GetHeadRequest(replace=replace))
-            if response.success:
-                host, port = response.host, response.port
-                self.tail_port = port
-                logging.info(f"Retrieved head address: {host}:{port}")
+            host, port = response.hostname, response.port
+            self.tail_port = port
+            logging.info(f"Retrieved head address: {host}:{port}")
 
-                # Check if head_stub is already initialized; if not, create it
-                if self.head_stub is None:
-                    head_channel = grpc.insecure_channel(f'{host}:{port}')
-                    self.head_stub = kvstore_pb2_grpc.KVStoreStub(head_channel)
-                    logging.info(f"Initialized head stub for: {host}:{port}")
+            # Check if head_stub is already initialized; if not, create it
+            if self.head_stub is None:
+                head_channel = grpc.insecure_channel(f'{host}:{port}')
+                self.head_stub = kvstore_pb2_grpc.KVStoreStub(head_channel)
+                logging.info(f"Initialized head stub for: {host}:{port}")
 
                 return self.head_stub
 
@@ -127,17 +129,16 @@ class KV739Client:
         """Fetches the middle server's stub from the master."""
         try:
             response = self.master_stub.GetMiddle(kvstore_pb2.GetMiddleRequest())
-            if response.success:
-                host, port = response.host, response.port
-                logging.info(f"Retrieved middle address: {host}:{port}")
+            host, port = response.hostname, response.port
+            logging.info(f"Retrieved middle address: {host}:{port}")
+            
+            # Check if middle_stub is already initialized; if not, create it
+            if self.middle_stub is None:
+                middle_channel = grpc.insecure_channel(f'{host}:{port}')
+                self.middle_stub = kvstore_pb2_grpc.KVStoreStub(middle_channel)
+                logging.info(f"Initialized middle stub for: {host}:{port}")
                 
-                # Check if middle_stub is already initialized; if not, create it
-                if self.middle_stub is None:
-                    middle_channel = grpc.insecure_channel(f'{host}:{port}')
-                    self.middle_stub = kvstore_pb2_grpc.KVStoreStub(middle_channel)
-                    logging.info(f"Initialized middle stub for: {host}:{port}")
-                    
-                return self.middle_stub
+            return self.middle_stub
 
         except grpc.RpcError as e:
             logging.error(f"Error during GetMiddle call: {e}")
@@ -204,18 +205,17 @@ class KV739Client:
         except grpc.RpcError as e:
             logging.error(f"PUT operation failed: {e}")
             
-            self._get_head_stub(replace=True)  # Old head crashed 
             if retries > 0:
-                self.head_stub = None  # Reset head stub for next attempt
+                self._get_head_stub(replace=True) # Reset head stub for next attempt
                 logging.info(f"Retrying... attempts left: {retries}")
                 return self.kv739_put(key, value, timeout, retries - 1)  # Retry the operation
 
             logging.error("Max retries exceeded; operation failed.")
             return -2, ''  # Return -2 on communication failure
 
-        except Exception as e:
-            logging.error(f"Unexpected error: {e}")
-            return -1, ''  # Return -1 on any other internal error
+        # except Exception as e:
+        #     logging.error(f"Unexpected error: {e}")
+        #     return -1, ''  # Return -1 on any other internal error
 
 
     def kv739_shutdown(self):
@@ -252,21 +252,7 @@ class KV739Client:
             raise Exception("Client not initialized. Call kv739_init() first.")
     
         try:
-            if server_name == 'master':
-                # Use the existing master stub directly
-                logging.info(f"Attempting to kill the Master Server...")
-                if clean == 1:
-                    # Allow the master server to clean up before shutting down
-                    die_request = kvstore_pb2.DieRequest(clean=True)
-                    self.master_stub.Die(die_request)
-                    logging.info(f"Master Server terminated cleanly.")
-                else:
-                    # Force the master server to exit immediately
-                    logging.info(f"Forcing Master Server to terminate immediately.")
-                    self.master_stub.Die(kvstore_pb2.DieRequest(clean=False))  # Informing the server to exit immediately
-                    sys.exit()  # Terminate immediately
-    
-            elif server_name == 'middle':
+            if server_name == 'middle':
                 # Use the existing method to get the middle server's stub
                 middle_stub = self._get_middle_stub()
                 if middle_stub is None:
@@ -332,7 +318,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='KV739 Client Operations')
     parser.add_argument('operation', choices=['get', 'put', 'die'], help='Specify the operation (get, put, die)')
     parser.add_argument('key', help='The key for the GET/PUT operation')
-    parser.add_argument('server_name', choices=['master', 'middle', 'tail'], help='The server type to terminate (e.g., "master", "middle", or "tail") for die function')
+    parser.add_argument("--kill_type", default="head", choices=["head", "tail", "middle"], help="The server type to terminate for die function")
     parser.add_argument('value', nargs='?', default='', help='The value for the PUT operation (optional for GET)')
     parser.add_argument('--clean', type=int, choices=[0, 1], help='Clean termination (1 for clean, 0 for immediate)')
     parser.add_argument('--config_file', type=str, default="server_config.json", help='Path to config file with server instances')
@@ -365,10 +351,6 @@ if __name__ == "__main__":
         logging.info("Connected to server.")
         if args.operation == 'put':
             if args.value:
-                # Ensure old_value is more than the max size when doing a PUT
-                if len(args.value) <= 2048:
-                    logging.error("Invalid operation: Old value must be at least 1 byte larger than the maximum value size (2048 bytes).")
-                    exit(1)
                 client.kv739_put(args.key, args.value, args.timeout)
             else:
                 logging.error("PUT operation requires both key and value.")
@@ -376,7 +358,7 @@ if __name__ == "__main__":
             client.kv739_get(args.key, args.timeout)
         elif args.operation == 'die':
             if args.clean is not None:
-                client.kv739_die(args.server_name, args.clean)
+                client.kv739_die(args.kill_type, args.clean)
             else:
                 logging.error("DIE operation requires --clean argument (0 or 1).")
 

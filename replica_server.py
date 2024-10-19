@@ -106,6 +106,8 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
                  heartbeat_gap=1,
                  prev_port=None,
                  next_port=None,
+                 retries=3,
+                 retry_interval=0.5
                  ):
         """
         Initialize the key-value store servicer for gRPC comm.
@@ -116,12 +118,15 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             heartbeat_gap: The interval between heartbeats.
             prev_port: The port of the previous server in the chain.
             next_port: The port of the next server in the chain.
+            retries: The number of retries for forwarding
         """
         self.port = store.port
         self.store = store
         self.server = server
         self.master_port = master_port
         self.heartbeat_gap = heartbeat_gap
+        self.retries = retries
+        self.retry_interval = retry_interval
         self.db_file = os.path.join(DB_PATH, f"kvstore_{self.port}.db")
         
         # Init comm along the chain and to the master
@@ -188,6 +193,20 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         except sqlite3.Error as e:
             logging.error(f"Error processing Put request for key {request.key}: {e}")
             return kvstore_pb2.PutResponse(success=False)
+        except grpc.RpcError as e:
+            logging.error(f"Error forwarding Put request for key {request.key}: {e}")
+            for i in range(self.retries):
+                time.sleep(self.retry_interval)
+                try:
+                    if not self.is_tail:
+                        response = self.master_stub.GetNextInChain(kvstore_pb2.GetNextInChainRequest(port=self.port))
+                        port, host = response.port, response.host
+                        self.next_port = port
+                        self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'{host}:{self.next_port}'))
+                    self.ForwardToNext(request.key, request.value)
+                    break
+                except grpc.RpcError as e:
+                    logging.info(f"Server {self.port} {i+1}th retry for forwarding")
 
 
     def ForwardToNext(self, key, value):

@@ -11,6 +11,7 @@ import socket
 import random
 import json
 import os
+import shutil
 import subprocess
 import math
 
@@ -18,9 +19,8 @@ DB_PATH = "./db_files/"
 
 # Set up logging to file
 logging.basicConfig(
-    filename='kvstore.log',
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
 )
 
 def scan_ports(num_ports=3, start_port=50000, end_port=60000):
@@ -147,9 +147,14 @@ class MasterNode:
         ]
     
         # Chain structure
-        self.child_ports.remove(self.child_order[port])
+        self.child_ports.remove(port)
+        # self.child_order[port] = len(self.child_ports) - 1
+        # Shift ports after the fail one one position to the left
+        for i in range(self.child_order[port] + 1, len(self.child_ports)):
+            self.child_order[self.child_ports[i]] -= 1
         self.child_ports.append(port)
         self.child_order[port] = len(self.child_ports) - 1
+        
         if port == self.head_port:
             self.head_port = self.child_ports[0]
         self.tail_port = port    
@@ -158,7 +163,7 @@ class MasterNode:
         self.servers_procs[port] = subprocess.Popen(command)  # Start the server as a subprocess
         logging.info(f"Server resurrected on port {port}")
         
-    def get_head(self):
+    def get_head(self, replace=False):
         """Get the head node's address in the chain. If it is down, replace it by spawning a new server."""
         if not self.child_ports:
             logging.error("No servers are available.")
@@ -166,33 +171,37 @@ class MasterNode:
 
         # Check if the head is alive by verifying its last heartbeat
         current_time = time.time()
-        if head_port not in self.heartbeats or current_time - self.heartbeats[head_port] > self.timeout:
-            logging.warning(f"Head server on port {head_port} is down. Attempting replacement...")
+        if (self.head_port not in self.heartbeats \
+            or current_time - self.heartbeats[self.head_port] > self.timeout \
+            or replace
+            ):
+            logging.warning(f"Master heard that heard on port {self.head_port} is down. Attempting replacement...")
             
             # Replace the head by spawning a new server on an available port
-            self.replace_server(head_port)
+            self.replace_server(self.head_port)
             # Update the head to the new server (newly spawned server should be at the front)
-            head_port = self.child_ports[0]
-            logging.info(f"New head server spawned on port {head_port}.")
+            self.head_port = self.child_ports[0]
+            logging.info(f"New head server spawned on port {self.head_port}.")
         else:
-            logging.info(f"Head server is alive on port {head_port}.")
+            logging.info(f"Head server is alive on port {self.head_port}.")
         
         hostname = socket.gethostname()
-        return head_port, hostname
+        return self.head_port, hostname
 
-        
-    def get_tail(self):
+    def get_tail(self, replace=False):
         """Get the tail node's address in the chain. If it is down, replace it by spawning a new server."""
         if not self.child_ports:
             logging.error("No servers are available.")
             return None
 
         # The tail is the last server in the chain
-        tail_port = self.child_ports[-1]
+        tail_port = self.tail_port
 
         # Check if the tail is alive by verifying its last heartbeat
         current_time = time.time()
-        if tail_port not in self.heartbeats or current_time - self.heartbeats[tail_port] > self.timeout:
+        if tail_port not in self.heartbeats \
+        or current_time - self.heartbeats[tail_port] > self.timeout\
+        or replace:
             logging.warning(f"Tail server on port {tail_port} is down. Attempting replacement...")
             
             # Replace the tail by spawning a new server on an available port
@@ -225,13 +234,27 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
     
     def GetHead(self, request, context):
         """Get the head node's address in the chain."""
-        head_port, hostname = MasterNode.get_head()
-        return kvstore_pb2.GetHeadResponse(port=head_port, hostname=hostname)
+        head_port, hostname = self.master_node.get_head(request.replace)
+        return kvstore_pb2.GetReplicaResponse(port=head_port, hostname=hostname)
 
     def GetTail(self, request, context):
         """Get the tail node's address in the chain."""
-        tail_port, hostname = MasterNode.get_tail()
-        return kvstore_pb2.GetTailResponse(port=tail_port, hostname=hostname)
+        tail_port, hostname = self.master_node.get_tail(request.replace)
+        return kvstore_pb2.GetReplicaResponse(port=tail_port, hostname=hostname)
+    
+    def GetNextInChain(self, request, context):
+        """Get the next node in the chain."""
+        port = request.port
+        if port not in self.master_node.child_ports:
+            logging.error(f"Port {port} not found in the chain.")
+            return kvstore_pb2.GetReplicaResponse(port=None, hostname=None)
+        if port == self.master_node.tail_port:
+            logging.info(f"Tail node can't reach next in chain.")
+            return kvstore_pb2.GetReplicaResponse(port=None, hostname=None)
+        
+        next_port = self.master_node.child_ports[self.master_node.child_order[port] + 1]
+        hostname = socket.gethostname()
+        return kvstore_pb2.GetReplicaResponse(port=next_port, hostname=hostname)
     
     def GetHeartBeat(self, request, context):
         """Get the heartbeat status of the master node.
@@ -245,6 +268,13 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
         self.master_node.log_heartbeat(client_port, is_alive=request.is_alive)
         return kvstore_pb2.HeartBeatResponse(is_alive=True)
 
+    def KillAll(self,):
+        """ Clean up all servers on exit"""
+        for port, process in self.master_node.servers_procs.items():
+            process.kill()
+        logging.info("All servers killed.")
+        
+        
 def serve(args, ports):
     # Setup args
     master_port = ports["master_port"]
@@ -269,8 +299,9 @@ def serve(args, ports):
     except KeyboardInterrupt:
         logging.info(f"Master node shutting down.")
         server.stop(0)
+        master_node.KillAll()
         # Remove all db files
-        os.rmdir(DB_PATH)
+        shutil.rmtree(DB_PATH)
         
 
 if __name__ == '__main__':

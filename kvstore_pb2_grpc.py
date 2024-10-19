@@ -411,17 +411,22 @@ class MasterNodeStub(object):
         self.GetHead = channel.unary_unary(
                 '/kvstore.MasterNode/GetHead',
                 request_serializer=kvstore__pb2.GetHeadRequest.SerializeToString,
-                response_deserializer=kvstore__pb2.GetHeadResponse.FromString,
+                response_deserializer=kvstore__pb2.GetReplicaResponse.FromString,
                 )
         self.GetTail = channel.unary_unary(
                 '/kvstore.MasterNode/GetTail',
                 request_serializer=kvstore__pb2.GetTailRequest.SerializeToString,
-                response_deserializer=kvstore__pb2.GetTailResponse.FromString,
+                response_deserializer=kvstore__pb2.GetReplicaResponse.FromString,
                 )
         self.GetHeartBeat = channel.unary_unary(
                 '/kvstore.MasterNode/GetHeartBeat',
                 request_serializer=kvstore__pb2.GetHeartBeatRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.GetHeartBeatResponse.FromString,
+                )
+        self.GetNextInChain = channel.unary_unary(
+                '/kvstore.MasterNode/GetNextInChain',
+                request_serializer=kvstore__pb2.GetNextInChainRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.GetReplicaResponse.FromString,
                 )
 
 
@@ -446,23 +451,34 @@ class MasterNodeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetNextInChain(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_MasterNodeServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'GetHead': grpc.unary_unary_rpc_method_handler(
                     servicer.GetHead,
                     request_deserializer=kvstore__pb2.GetHeadRequest.FromString,
-                    response_serializer=kvstore__pb2.GetHeadResponse.SerializeToString,
+                    response_serializer=kvstore__pb2.GetReplicaResponse.SerializeToString,
             ),
             'GetTail': grpc.unary_unary_rpc_method_handler(
                     servicer.GetTail,
                     request_deserializer=kvstore__pb2.GetTailRequest.FromString,
-                    response_serializer=kvstore__pb2.GetTailResponse.SerializeToString,
+                    response_serializer=kvstore__pb2.GetReplicaResponse.SerializeToString,
             ),
             'GetHeartBeat': grpc.unary_unary_rpc_method_handler(
                     servicer.GetHeartBeat,
                     request_deserializer=kvstore__pb2.GetHeartBeatRequest.FromString,
                     response_serializer=kvstore__pb2.GetHeartBeatResponse.SerializeToString,
+            ),
+            'GetNextInChain': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetNextInChain,
+                    request_deserializer=kvstore__pb2.GetNextInChainRequest.FromString,
+                    response_serializer=kvstore__pb2.GetReplicaResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -487,7 +503,7 @@ class MasterNode(object):
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/GetHead',
             kvstore__pb2.GetHeadRequest.SerializeToString,
-            kvstore__pb2.GetHeadResponse.FromString,
+            kvstore__pb2.GetReplicaResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -504,7 +520,7 @@ class MasterNode(object):
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/GetTail',
             kvstore__pb2.GetTailRequest.SerializeToString,
-            kvstore__pb2.GetTailResponse.FromString,
+            kvstore__pb2.GetReplicaResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -522,5 +538,22 @@ class MasterNode(object):
         return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/GetHeartBeat',
             kvstore__pb2.GetHeartBeatRequest.SerializeToString,
             kvstore__pb2.GetHeartBeatResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def GetNextInChain(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/GetNextInChain',
+            kvstore__pb2.GetNextInChainRequest.SerializeToString,
+            kvstore__pb2.GetReplicaResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
