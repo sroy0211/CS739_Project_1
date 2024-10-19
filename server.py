@@ -159,7 +159,7 @@ class MasterNode:
             self.head_port = self.child_ports[0]
         self.tail_port = port    
         
-        command.append(f"--prev_port={self.tail_port})")
+        command.append(f"--prev_port={self.tail_port}")
         self.servers_procs[port] = subprocess.Popen(command)  # Start the server as a subprocess
         logging.info(f"Server resurrected on port {port}")
         

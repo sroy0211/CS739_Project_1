@@ -187,26 +187,30 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             return kvstore_pb2.PutResponse(success=False)
         
         try:
-            self.store.put(request.key, request.value)
+            # Perform the Put operation
+            old_value, old_value_found = self.store.put(request.key, request.value)
+            
             # Forward to next in chain
             self.ForwardToNext(request.key, request.value)
+            
+            # Construct the response
+            response = kvstore_pb2.PutResponse(
+                old_value=old_value if old_value_found else '',
+                old_value_found=old_value_found,
+                success=True,
+                version=0  # Use an appropriate version number if applicable
+            )
+            logging.info(f"Put operation successful for key: {request.key}")
+            return response
+
         except sqlite3.Error as e:
             logging.error(f"Error processing Put request for key {request.key}: {e}")
             return kvstore_pb2.PutResponse(success=False)
         except grpc.RpcError as e:
             logging.error(f"Error forwarding Put request for key {request.key}: {e}")
-            for i in range(self.retries):
-                time.sleep(self.retry_interval)
-                try:
-                    if not self.is_tail:
-                        response = self.master_stub.GetNextInChain(kvstore_pb2.GetNextInChainRequest(port=self.port))
-                        port, host = response.port, response.host
-                        self.next_port = port
-                        self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'{host}:{self.next_port}'))
-                    self.ForwardToNext(request.key, request.value)
-                    break
-                except grpc.RpcError as e:
-                    logging.info(f"Server {self.port} {i+1}th retry for forwarding")
+            # Handle retries or other logic
+            return kvstore_pb2.PutResponse(success=False)
+
 
 
     def ForwardToNext(self, key, value):

@@ -325,7 +325,7 @@ if __name__ == "__main__":
     parser.add_argument('--timeout', type=int, default=5, help='Timeout for the GET operation (default: 5 seconds)')
     parser.add_argument('--cache_size', type=int, default=100, help='Maximum size of the cache (default: 100 entries)')
     parser.add_argument('--ttl', type=float, default=0.2, help='Time-to-Live for cache entries in seconds (default: 0.2)')
-    parser.add_argument('--use_cache', action='store_true', help='Enable client-side cache')
+    parser.add_argument('--use_cache', default=False, action='store_true', help='Enable client-side cache')
     parser.add_argument('--verbose', default=True, type=eval, help='Enable debug logging')
 
     args = parser.parse_args()
