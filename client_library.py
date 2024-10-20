@@ -144,7 +144,7 @@ class KV739Client:
 
         return None
 
-    def kv739_get(self, key, timeout=5, retries=3):
+    def kv739_get(self, key, timeout=5, retries=3, debug_port=None):
         """Fetches a key's value from the tail server."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
@@ -154,11 +154,16 @@ class KV739Client:
             return 0, value
 
         try:
-            # Make a Get request to the tail server
-            response = self.tail_stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
+            if debug_port is not None:
+                temp_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{debug_port}'))
+                response = temp_stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
+            else:
+                # Make a Get request to the tail server
+                response = self.tail_stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
+
             # if not success, reach master for tail
             if not response.success:
-                logging.info(f"Tail server {self.tail_port} rejected the request. Remaining retries: {retries}")
+                logging.info(f"Server {self.tail_port} rejected the request. Maybe it's not the tail? Remaining retries: {retries}")
                 self._get_tail_stub()
                 return self.kv739_get(key, timeout, retries - 1)
             
@@ -175,7 +180,8 @@ class KV739Client:
         except grpc.RpcError as e:
             logging.error(f"GET operation failed: {e}")
             self._get_tail_stub(replace=True)  # Tail server crashed
-            self.cache.clear()  # Clear the cache on error
+            if self.use_cache:
+                self.cache.clear()  # Clear the cache on error
             if retries > 0:
                 return self.kv739_get(key, timeout, retries - 1)
             else:
@@ -184,6 +190,7 @@ class KV739Client:
         except Exception as e:
             logging.error(f"Unexpected error: {e} in contacting tail server {self.tail_port}")
             return -1, ''
+
 
     def kv739_put(self, key, value, timeout=5, retries=3):
         """Performs a PUT operation using the head server."""
@@ -323,8 +330,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='KV739 Client Operations')
     parser.add_argument('operation', choices=['get', 'put', 'die'], help='Specify the operation (get, put, die)')
     parser.add_argument('key', help='The key for the GET/PUT operation')
-    parser.add_argument("--kill_type", default="head", choices=["head", "tail", "middle"], help="The server type to terminate for die function")
     parser.add_argument('value', nargs='?', default='', help='The value for the PUT operation (optional for GET)')
+    parser.add_argument("--kill_type", default="head", choices=["head", "tail", "middle"], help="The server type to terminate for die function")
+    parser.add_argument("--debug_port", type=int, default=None, help="Connect to the replica at this port for debugging")
     parser.add_argument('--clean', type=int, choices=[0, 1], help='Clean termination (1 for clean, 0 for immediate)')
     parser.add_argument('--config_file', type=str, default="server_config.json", help='Path to config file with server instances')
     parser.add_argument('--timeout', type=int, default=5, help='Timeout for the GET operation (default: 5 seconds)')
@@ -357,7 +365,7 @@ if __name__ == "__main__":
             else:
                 logging.error("PUT operation requires both key and value.")
         elif args.operation == 'get':
-            return_code, value = client.kv739_get(args.key, args.timeout)
+            return_code, value = client.kv739_get(args.key, args.timeout, debug_port=args.debug_port)
             if args.verbose and return_code == 0:
                 logging.info(f"Client retrieved {args.key}: {value}")
             elif return_code == 1:

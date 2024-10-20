@@ -17,10 +17,13 @@ import math
 
 DB_PATH = "./db_files/"
 
+# Clear logging file before starting
 # Set up logging to file
 logging.basicConfig(
+    filename='master_server.log',
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s',
+    filemode='w'
 )
 
 def scan_ports(num_ports=3, start_port=50000, end_port=60000):
@@ -69,7 +72,6 @@ class MasterNode:
         self.timeout = timeout
         self.num_replicas = num_replicas
         self.heartbeats = {} # {port: timestamp}
-        self.server_stubs = {} # {port: stub}
         self.min_chain_len = math.ceil(args.num_replicas / 2)
 
         self.verbose = verbose
@@ -78,6 +80,7 @@ class MasterNode:
         self.port = port
         # make it a linked list
         self.child_ports = child_ports
+        self.server_stubs = {port: kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{port}')) for port in child_ports}
         self.child_order = {port: i for i, port in enumerate(child_ports)}
         self.head_port = self.child_ports[0]
         self.tail_port = self.child_ports[-1]
@@ -130,7 +133,7 @@ class MasterNode:
             
         logging.info(f"Replicas spawn from port {self.child_ports[0]} to {self.child_ports[-1]}")
             
-    def replace_server(self, port, is_tail=False):
+    def replace_server(self, port):
         """Replace a failed server by appending a new one to tail, 
             using the original port(as we run in a simulated LAN environment).
             1. Reads the old database (when the node isn't totally destroyed)
@@ -147,21 +150,26 @@ class MasterNode:
         ]
     
         # Chain structure
-        self.child_ports.remove(port)
-        # self.child_order[port] = len(self.child_ports) - 1
+        del self.child_ports[self.child_order[port]]
         # Shift ports after the fail one one position to the left
         for i in range(self.child_order[port] + 1, len(self.child_ports)):
             self.child_order[self.child_ports[i]] -= 1
         self.child_ports.append(port)
-        self.child_order[port] = len(self.child_ports) - 1
-        
+        self.child_order[port] = len(self.child_ports) - 1    
+         
         if port == self.head_port:
             self.head_port = self.child_ports[0]
-        self.tail_port = port    
-        
+        if port == self.tail_port:
+            self.tail_port = self.child_ports[-1] # Temp tail until the new one is up
+            
         command.append(f"--prev_port={self.tail_port}")
         self.servers_procs[port] = subprocess.Popen(command)  # Start the server as a subprocess
-        logging.info(f"Server resurrected on port {port}")
+        self.server_stubs[self.tail_port].UpdateTail(kvstore_pb2.UpdateTailRequest(port=port))
+        
+    def update_tail_done(self, port):
+        self.tail_port = port   
+        self.heartbeats[port] = time.time()
+        logging.info(f"Tail node updated to port {port}.")
         
     def get_head(self, replace=False):
         """Get the head node's address in the chain. If it is down, replace it by spawning a new server."""
@@ -175,7 +183,7 @@ class MasterNode:
             or current_time - self.heartbeats[self.head_port] > self.timeout \
             or replace
             ):
-            logging.warning(f"Master heard that heard on port {self.head_port} is down. Attempting replacement...")
+            logging.warning(f"Master heard that the replica on port {self.head_port} is down. Attempting replacement...")
             
             # Replace the head by spawning a new server on an available port
             self.replace_server(self.head_port)
@@ -215,7 +223,11 @@ class MasterNode:
         hostname = socket.gethostname()
         return tail_port, hostname
  
-    
+    def kill_all(self,):
+        """ Clean up all servers on exit"""
+        for port, process in self.servers_procs.items():
+            process.kill()
+        logging.info("All replicas killed.")    
 
 # TODO implement master servicer
 class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
@@ -266,15 +278,12 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
         # Assume running on localhost
 
         self.master_node.log_heartbeat(client_port, is_alive=request.is_alive)
-        return kvstore_pb2.HeartBeatResponse(is_alive=True)
-
-    def KillAll(self,):
-        """ Clean up all servers on exit"""
-        for port, process in self.master_node.servers_procs.items():
-            process.kill()
-        logging.info("All servers killed.")
+        return kvstore_pb2.GetHeartBeatResponse(is_alive=True)
         
-        
+    def UpdateTailDone(self, request, context):
+        """Update the tail node's address in the chain."""
+        self.master_node.UpdateTailDone(request.port)
+    
 def serve(args, ports):
     # Setup args
     master_port = ports["master_port"]
@@ -299,7 +308,7 @@ def serve(args, ports):
     except KeyboardInterrupt:
         logging.info(f"Master node shutting down.")
         server.stop(0)
-        master_node.KillAll()
+        master_node.kill_all()
         # Remove all db files
         shutil.rmtree(DB_PATH)
         

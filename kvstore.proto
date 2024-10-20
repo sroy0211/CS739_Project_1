@@ -2,6 +2,10 @@ syntax = "proto3";
 
 package kvstore;
 
+message Empty {
+
+}
+
 message GetRequest {
   string key = 1;
 }
@@ -17,6 +21,7 @@ message PutRequest {
   string key = 1;
   string value = 2;
   uint64 version = 3;  // Added versioning for conflict resolution
+  bool is_forward = 4;  // if is forwarded by replica
 }
 
 message PutResponse {
@@ -76,6 +81,9 @@ message UpdateTailResponse {
   bool success = 1;
 }
 
+message TailUpdated{
+  int32 port = 1;
+}
 service KVStore {
   rpc Get(GetRequest) returns (GetResponse);
   rpc Put(PutRequest) returns (PutResponse);
@@ -91,6 +99,7 @@ service KVStore {
   rpc UpdateTail(UpdateTailRequest) returns (UpdateTailResponse);
   rpc UpdateHead(UpdateTailRequest) returns (UpdateTailResponse);
   rpc ForwardToNext(PutRequest) returns (PutResponse);
+  rpc UpdateTailDone(TailUpdated) returns (Empty);
 }
 
 
