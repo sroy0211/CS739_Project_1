@@ -119,11 +119,11 @@ message GetReplicaResponse{
   bool success = 3;
 }
 
-message GetHeartBeatRequest{
+message SendHeartBeatRequest{
   bool is_alive = 1; // whether the child is alive
   int32 port = 2; // port of the child
 }
-message GetHeartBeatResponse{
+message SendHeartBeatResponse{
   bool is_alive = 1;
 }
 
@@ -134,7 +134,7 @@ message GetNextInChainRequest{
 service MasterNode {
   rpc GetHead(GetHeadRequest) returns (GetReplicaResponse);
   rpc GetTail(GetTailRequest) returns (GetReplicaResponse);
-  rpc GetHeartBeat(GetHeartBeatRequest) returns (GetHeartBeatResponse);
+  rpc GetHeartBeat(SendHeartBeatRequest) returns (SendHeartBeatResponse);
   rpc GetNextInChain(GetNextInChainRequest) returns (GetReplicaResponse);
   rpc UpdateTailDone(TailUpdated) returns (Empty);
 }

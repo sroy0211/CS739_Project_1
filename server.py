@@ -106,7 +106,7 @@ class MasterNode:
                 for port, last_hb_time in self.heartbeats.items():
                     # logging.info(f"Checking heartbeat for port {port}")
                     if current_time - last_hb_time > self.timeout:
-                        logging.warning(f"Server on port {port} is down. Attempting replacement...")
+                        logging.warning(f"Found that server on port {port} has no heartbeat. Attempting replacement...")
                         
                         with self.lock:
                             self.num_live_replicas -= 1
@@ -123,6 +123,7 @@ class MasterNode:
         """Log the heartbeat for the given server port, or replace a server
         in a "clean" way. """
         if not is_alive:
+            logging.warning(f"Server on port {port} notified master that it's down. Attempting replacement...")
             with self.lock:
                 self.heartbeats[port] = None
                 self.num_live_replicas -= 1
@@ -151,7 +152,7 @@ class MasterNode:
             # Spawn the server with the required configuration
             self.servers_procs[port] = process  # Store the process object for management
             self.server_stubs[port] = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{port}'))
-        
+            self.heartbeats[port] = time.time()
         logging.info(f"Replicas spawn on ports: {self.child_ports}")
             
     def replace_server(self, port):
@@ -198,7 +199,7 @@ class MasterNode:
         """Update the head node's address in the chain."""
         for i in range(retries):
             try:
-                self.server_stubs[new_head_port].UpdateHead(kvstore_pb2.UpdateHeadRequest(new_head_port=new_head_port))
+                self.server_stubs[new_head_port].UpdateHead(kvstore_pb2.UpdateHeadRequest())
                 self.head_port = new_head_port
                 logging.info(f"Master requested server {self.head_port} to claim head status.")
                 return
@@ -275,7 +276,7 @@ class MasterNode:
             tail_port = self.child_ports[-1]
             logging.info(f"New tail server spawned on port {tail_port}.")
         else:
-            logging.info(f"Tail server is found on port {tail_port}, returning it to client.")
+            logging.info(f"Tail server is alive on port {tail_port}, returning it to client.")
 
         hostname = socket.gethostname()
         return tail_port, hostname
@@ -338,7 +339,7 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
         except Exception as e:
             logging.error(f"Master error in receiving heartbeat: {e}")
         finally:
-            return kvstore_pb2.GetHeartBeatResponse(is_alive=True)
+            return kvstore_pb2.SendHeartBeatResponse(is_alive=True)
         
     def UpdateTailDone(self, request, context):
         """Update the tail node's address in the chain."""

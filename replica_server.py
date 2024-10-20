@@ -53,7 +53,6 @@ class KeyValueStore:
             cursor = self.conn.execute("SELECT value FROM kvstore WHERE key=?", (key,))
             result = cursor.fetchone()
             if result:
-                logging.info(f"Server {self.port} result for {key} found: {result[0]}")
                 return result[0], True
             return None, False
         except sqlite3.Error as e:
@@ -148,15 +147,17 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
 
     def send_heartbeat(self, is_alive=True):
         """Send heartbeat to master to signal that the server is alive."""
-        while not self.stop_heartbeat.is_set():
-            try:
-                # Simulate sending a heartbeat to the master
-                self.master_stub.GetHeartBeat(kvstore_pb2.GetHeartBeatRequest(is_alive=is_alive, port=self.port))
-                time.sleep(self.heartbeat_gap)  # Adjust heartbeat interval if needed
-                
-            except Exception as e:
-                logging.error(f"Error in sending heartbeat heartbeat on port {self.port}: {e}")
-                break
+        try:
+            # Send at least once
+            self.master_stub.GetHeartBeat(kvstore_pb2.SendHeartBeatRequest(is_alive=is_alive, port=self.port))
+            time.sleep(self.heartbeat_gap)  
+            while not self.stop_heartbeat.is_set():
+                self.master_stub.GetHeartBeat(kvstore_pb2.SendHeartBeatRequest(is_alive=is_alive, port=self.port))
+                time.sleep(self.heartbeat_gap) 
+            
+        except Exception as e:
+            logging.error(f"Error in sending heartbeat heartbeat on port {self.port}: {e}")
+            
 
     def Get(self, request, context):
         """Handle 'Get' requests."""
@@ -242,7 +243,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             # Relinquish tail status
             self.is_tail = False 
             self.master_stub.UpdateTailDone(kvstore_pb2.TailUpdated(new_tail_port=self.next_port))
-            logging.info(f"Server {self.port} relinquished tail status to new tail {self.next_port}.")
+            logging.info(f"Server {self.port} transferred tail status to new tail {self.next_port}.")
         except Exception as e:
             logging.error(f"Error on server {self.port} in ForwardAll to new tail {self.next_port}: {e}")
         finally:
@@ -275,27 +276,39 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
     def UpdateHead(self, request, context):
         self.prev_port = None
         self.is_head = True
-        logging.info(f"Server {self.port} prompted  head.")
+        logging.info(f"Server {self.port} acknowledged its new head status.")
         return kvstore_pb2.UpdateHeadResponse(success=True)
 
-    def Die(self, request, context):
-        """Terminate the server to simulate failure."""
-        logging.info(f"Server on port {self.port} crashed by request.")        
-        self.stop_heartbeat.set() # Stops the heartbeat thread
-        
-        if request.clean: # Notify master I'm down
-            self.send_heartbeat(is_alive=False)
-        # Shut down the server
-        self.server.stop(0)  # This will stop the server gracefully
+    def stop_server(self, ):
+        """Schedule the server to stop after a short delay to allow responding to client."""
+        self.server.stop(0)  # Graceful shutdown
+        self.server.wait_for_termination()
         self.store.crash()
         logging.info(f"Server {self.port} shut down successfully.")
-        
+    
+    def Die(self, request, context):
+        """Terminate the server to simulate failure."""
+        self.stop_heartbeat.set()  # Stops the heartbeat thread
+        clean = request.clean
+
+        if clean:
+            logging.info(f"Server on port {self.port} crashed by clean kill. Notifying master.")  
+            self.send_heartbeat(is_alive=False)
+        else:
+            logging.info(f"Server on port {self.port} crashed by non-clean kill.")
+
+        # Prepare the response
+        response = kvstore_pb2.DieResponse(success=True)
+        # Send the response before shutting down
         context.set_code(grpc.StatusCode.OK)
         context.set_details("Server is shutting down.")
-        return kvstore_pb2.DieResponse(success=True)
-    
-    
-    
+        if clean:
+            context.add_callback(self.stop_server)
+
+        return response
+
+
+
 def serve(args):
     """Run the gRPC server."""
     port, master_port = args.port, args.master_port,
