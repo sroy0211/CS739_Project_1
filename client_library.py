@@ -108,7 +108,7 @@ class KV739Client:
             
             response = self.master_stub.GetHead(kvstore_pb2.GetHeadRequest(replace=replace))
             host, port = response.hostname, response.port
-            self.tail_port = port
+            self.head_port = port
             logging.info(f"Retrieved head address: {host}:{port}")
 
             # Check if head_stub is already initialized; if not, create it
@@ -286,11 +286,10 @@ class KV739Client:
                     logging.info("Head Server terminated cleanly.")
                 else:
                     # Force the middle server to exit immediately
-                    logging.info("Forcing head server to terminate immediately.")
+                    logging.info("Forcing head server to terminate non-clean.")
                     head_stub.Die(kvstore_pb2.DieRequest(clean=False))
-                    sys.exit()  # Terminate immediately
     
-            elif server_type == 'head':
+            elif server_type == 'tail':
                 # Use the existing method to get the tail server's stub
                 tail_stub = self._get_tail_stub()
                 if tail_stub is None:
@@ -307,7 +306,6 @@ class KV739Client:
                     # Force the tail server to exit immediately
                     logging.info("Forcing Tail Server to terminate immediately.")
                     tail_stub.Die(kvstore_pb2.DieRequest(clean=False))
-                    sys.exit()  # Terminate immediately
     
             return 0  # Success
     

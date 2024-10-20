@@ -151,8 +151,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         while not self.stop_heartbeat.is_set():
             try:
                 # Simulate sending a heartbeat to the master
-                # logging.info(f"Heartbeat sent from server {self.port} to master {self.master_port}")
-                self.master_stub.GetHeartBeat(kvstore_pb2.GetHeartBeatRequest(is_alive=is_alive))
+                self.master_stub.GetHeartBeat(kvstore_pb2.GetHeartBeatRequest(is_alive=is_alive, port=self.port))
                 time.sleep(self.heartbeat_gap)  # Adjust heartbeat interval if needed
                 
             except Exception as e:
@@ -173,10 +172,10 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
                 return kvstore_pb2.GetResponse(value=value, success=True, found=True)
             else:
                 logging.info(f"Server {self.port} get request for key: {request.key} - Not found.")
-                return kvstore_pb2.GetResponse(success=False, found=False)
+                return kvstore_pb2.GetResponse(success=True, found=False)
         except sqlite3.Error as e:
             logging.error(f"Server {self.port} error processing Get request for key {request.key}: {e}")
-            return kvstore_pb2.GetResponse(success=False, found=False)
+            return kvstore_pb2.GetResponse(success=True, found=False)
 
     def Put(self, request, context):
         """Handle 'Put' requests."""
@@ -214,9 +213,13 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
     def ForwardToNext(self, key, value):
         """Forward key-value pairs to the next node in the chain."""
         if self.next_stub is not None:
-            response = self.next_stub.Put(kvstore_pb2.PutRequest(key=key, value=value, is_forward=True))
-            if response.success:
-                logging.info(f"Forwarded key '{key}' to next node {self.next_port} in chain.")
+            try:
+                response = self.next_stub.Put(kvstore_pb2.PutRequest(key=key, value=value, is_forward=True))
+                if response.success:
+                    logging.info(f"Forwarded key '{key}' to next node {self.next_port} in chain.")
+            except grpc.RpcError as e:
+                logging.error(f"Error forwarding key '{key}' to next node {self.next_port}: {e}")
+                time.sleep(self.retry_interval)
         else:
             logging.info(f"Server {self.port} is the tail. No forwarding needed.")
             
@@ -237,7 +240,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             # Relinquish tail status
             self.is_tail = False 
             logging.info(f"Server {self.port} data forwarding to new tail completed.")
-            self.master_stub.UpdateTailDone(kvstore_pb2.TailUpdated(port=self.port))
+            self.master_stub.UpdateTailDone(kvstore_pb2.TailUpdated(new_tail_port=self.next_port))
         except Exception as e:
             logging.error(f"Error in ForwardAll: {e}")
         finally:
@@ -247,6 +250,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
                             
     def UpdateTail(self, request, context):
         """Notifies the tail KV Store of a new replacement tail."""
+        logging.info(f"Server {self.port} received update tail request.")
         if not self.is_tail:
             logging.info(f"Server {self.port} is not the tail. Rejecting update tail request.")
             return kvstore_pb2.UpdateTailResponse(success=False)

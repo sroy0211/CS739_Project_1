@@ -75,7 +75,7 @@ message PingResponse {
 }
 
 message UpdateTailRequest {
-  int32 port = 1; // port of the new tail
+  int32 new_tail_port = 1; // port of the new tail
 }
 message UpdateTailResponse {
   bool success = 1;
@@ -118,6 +118,7 @@ message GetReplicaResponse{
 
 message GetHeartBeatRequest{
   bool is_alive = 1; // whether the child is alive
+  int32 port = 2; // port of the child
 }
 message GetHeartBeatResponse{
   bool is_alive = 1;
