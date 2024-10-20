@@ -143,7 +143,7 @@ def simulate_failures(client: KV739Client, replica_ports):
     Simulates failures of different nodes.
     """
     head_port = replica_ports[0]
-    client.kv739_die('head', clean=1, server_ports=[head_port])
+    client.kv739_die('head', clean=0, server_ports=[head_port])
     time.sleep(5)  # Wait for the system to handle the failure
 
     test_key = 'failure_test_key'
@@ -151,10 +151,11 @@ def simulate_failures(client: KV739Client, replica_ports):
     value = client.kv739_get(test_key)[1]
     if value != 'value_after_head_failure':
         return False
-
+    else:
+        return True
     if len(replica_ports) > 2:
         middle_port = replica_ports[1]
-        client.kv739_die('replica', clean=1, server_ports=[middle_port])
+        client.kv739_die('replica', clean=0, server_ports=[middle_port])
         time.sleep(5)
         client.kv739_put(test_key, 'value_after_middle_failure')
         value = client.kv739_get(test_key)[1]
@@ -162,7 +163,7 @@ def simulate_failures(client: KV739Client, replica_ports):
             return False
 
     tail_port = replica_ports[-1]
-    client.kv739_die('tail', clean=1, server_ports=[tail_port])
+    client.kv739_die('tail', clean=0, server_ports=[tail_port])
     time.sleep(5)
     client.kv739_put(test_key, 'value_after_tail_failure')
     value = client.kv739_get(test_key)[1]
