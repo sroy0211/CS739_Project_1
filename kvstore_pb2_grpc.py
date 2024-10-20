@@ -61,18 +61,13 @@ class KVStoreStub(object):
                 )
         self.UpdateHead = channel.unary_unary(
                 '/kvstore.KVStore/UpdateHead',
-                request_serializer=kvstore__pb2.UpdateTailRequest.SerializeToString,
-                response_deserializer=kvstore__pb2.UpdateTailResponse.FromString,
+                request_serializer=kvstore__pb2.UpdateHeadRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.UpdateHeadResponse.FromString,
                 )
         self.ForwardToNext = channel.unary_unary(
                 '/kvstore.KVStore/ForwardToNext',
                 request_serializer=kvstore__pb2.PutRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.PutResponse.FromString,
-                )
-        self.UpdateTailDone = channel.unary_unary(
-                '/kvstore.KVStore/UpdateTailDone',
-                request_serializer=kvstore__pb2.TailUpdated.SerializeToString,
-                response_deserializer=kvstore__pb2.Empty.FromString,
                 )
 
 
@@ -148,12 +143,6 @@ class KVStoreServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def UpdateTailDone(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
 
 def add_KVStoreServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -204,18 +193,13 @@ def add_KVStoreServicer_to_server(servicer, server):
             ),
             'UpdateHead': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateHead,
-                    request_deserializer=kvstore__pb2.UpdateTailRequest.FromString,
-                    response_serializer=kvstore__pb2.UpdateTailResponse.SerializeToString,
+                    request_deserializer=kvstore__pb2.UpdateHeadRequest.FromString,
+                    response_serializer=kvstore__pb2.UpdateHeadResponse.SerializeToString,
             ),
             'ForwardToNext': grpc.unary_unary_rpc_method_handler(
                     servicer.ForwardToNext,
                     request_deserializer=kvstore__pb2.PutRequest.FromString,
                     response_serializer=kvstore__pb2.PutResponse.SerializeToString,
-            ),
-            'UpdateTailDone': grpc.unary_unary_rpc_method_handler(
-                    servicer.UpdateTailDone,
-                    request_deserializer=kvstore__pb2.TailUpdated.FromString,
-                    response_serializer=kvstore__pb2.Empty.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -392,8 +376,8 @@ class KVStore(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/UpdateHead',
-            kvstore__pb2.UpdateTailRequest.SerializeToString,
-            kvstore__pb2.UpdateTailResponse.FromString,
+            kvstore__pb2.UpdateHeadRequest.SerializeToString,
+            kvstore__pb2.UpdateHeadResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -411,23 +395,6 @@ class KVStore(object):
         return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/ForwardToNext',
             kvstore__pb2.PutRequest.SerializeToString,
             kvstore__pb2.PutResponse.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
-
-    @staticmethod
-    def UpdateTailDone(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/UpdateTailDone',
-            kvstore__pb2.TailUpdated.SerializeToString,
-            kvstore__pb2.Empty.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -461,6 +428,11 @@ class MasterNodeStub(object):
                 request_serializer=kvstore__pb2.GetNextInChainRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.GetReplicaResponse.FromString,
                 )
+        self.UpdateTailDone = channel.unary_unary(
+                '/kvstore.MasterNode/UpdateTailDone',
+                request_serializer=kvstore__pb2.TailUpdated.SerializeToString,
+                response_deserializer=kvstore__pb2.Empty.FromString,
+                )
 
 
 class MasterNodeServicer(object):
@@ -490,6 +462,12 @@ class MasterNodeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def UpdateTailDone(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_MasterNodeServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -512,6 +490,11 @@ def add_MasterNodeServicer_to_server(servicer, server):
                     servicer.GetNextInChain,
                     request_deserializer=kvstore__pb2.GetNextInChainRequest.FromString,
                     response_serializer=kvstore__pb2.GetReplicaResponse.SerializeToString,
+            ),
+            'UpdateTailDone': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateTailDone,
+                    request_deserializer=kvstore__pb2.TailUpdated.FromString,
+                    response_serializer=kvstore__pb2.Empty.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -588,5 +571,22 @@ class MasterNode(object):
         return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/GetNextInChain',
             kvstore__pb2.GetNextInChainRequest.SerializeToString,
             kvstore__pb2.GetReplicaResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def UpdateTailDone(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/UpdateTailDone',
+            kvstore__pb2.TailUpdated.SerializeToString,
+            kvstore__pb2.Empty.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

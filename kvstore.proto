@@ -80,9 +80,13 @@ message UpdateTailRequest {
 message UpdateTailResponse {
   bool success = 1;
 }
-
+message UpdateHeadRequest {
+}
+message UpdateHeadResponse {
+  bool success = 1;
+}
 message TailUpdated{
-  int32 port = 1;
+  int32 new_tail_port = 1;
 }
 service KVStore {
   rpc Get(GetRequest) returns (GetResponse);
@@ -97,9 +101,8 @@ service KVStore {
   // New Ping RPC method
   rpc Ping(PingRequest) returns (PingResponse);
   rpc UpdateTail(UpdateTailRequest) returns (UpdateTailResponse);
-  rpc UpdateHead(UpdateTailRequest) returns (UpdateTailResponse);
+  rpc UpdateHead(UpdateHeadRequest) returns (UpdateHeadResponse);
   rpc ForwardToNext(PutRequest) returns (PutResponse);
-  rpc UpdateTailDone(TailUpdated) returns (Empty);
 }
 
 
@@ -133,4 +136,5 @@ service MasterNode {
   rpc GetTail(GetTailRequest) returns (GetReplicaResponse);
   rpc GetHeartBeat(GetHeartBeatRequest) returns (GetHeartBeatResponse);
   rpc GetNextInChain(GetNextInChainRequest) returns (GetReplicaResponse);
+  rpc UpdateTailDone(TailUpdated) returns (Empty);
 }

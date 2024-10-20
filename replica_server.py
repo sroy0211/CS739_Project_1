@@ -43,7 +43,6 @@ class KeyValueStore:
             self.conn.execute("PRAGMA busy_timeout = 5000;")
             self.conn.execute('''CREATE TABLE IF NOT EXISTS kvstore
                                  (key TEXT PRIMARY KEY, value TEXT)''')
-            logging.info("Initialized KVStore")
         except Exception as e:
             logging.error(f"Database error for server {self.port}: {e} accessing {self.db_file}")
             raise
@@ -69,7 +68,7 @@ class KeyValueStore:
                     self.conn.execute("UPDATE kvstore SET value=? WHERE key=?", (value, key))
                 else:
                     self.conn.execute("INSERT INTO kvstore (key, value) VALUES (?, ?)", (key, value))
-            logging.info("Put operation successful for key: %s", key)
+            # logging.info("Put operation successful for key: %s", key)
             return old_value, found
         except sqlite3.Error as e:
             logging.error(f"Error writing to database for key '{key}': {e}")
@@ -133,14 +132,15 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         assert prev_port or next_port, "Must be either head, tail or middle node"
         self.prev_port = prev_port
         self.next_port = next_port
-        self.is_tail = not next_port
+        self.is_tail = next_port is None
+        self.is_head = prev_port is None
         self.next_stub = None
         # NOTE: only forwarding, don't need previous stub (one-way linkedlist style chain)
         # if prev_port:
         #     self.prev_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{prev_port}'))
         if next_port:
             self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{next_port}'))
-        logging.info(f"Server on port {self.port} next port: {self.next_port}.")
+        
         # Start heartbeat thread
         self.stop_heartbeat = threading.Event()
         self.heartbeat_thread = threading.Thread(target=self.send_heartbeat)
@@ -180,16 +180,19 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
     def Put(self, request, context):
         """Handle 'Put' requests."""
         # Not head, reject req and ask client to go to master for new head.
-        if self.prev_port is not None and not request.is_forward:
+        if not self.is_head and not request.is_forward:
             logging.info(f"Server on port {self.port} is not the head. Rejecting Put request.")
             return kvstore_pb2.PutResponse(success=False)
         
         try:
             # Perform the Put operation
-            old_value, old_value_found = self.store.put(request.key, request.value)
-            
-            # Forward to next in chain
-            self.ForwardToNext(request.key, request.value)
+            key, value = request.key, request.value
+            old_value, old_value_found = self.store.put(key, value)
+            if self.is_tail:
+                logging.info(f"Server {self.port} committed {key}:{value} locally. No need to forward.")
+            else:
+                # Forward to next in chain
+                self.ForwardToNext(key, value)
             
             # Construct the response
             response = kvstore_pb2.PutResponse(
@@ -198,74 +201,82 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
                 success=True,
                 version=0  # Use an appropriate version number if applicable
             )
-            logging.info(f"Server {self.port} put operation successful for key: {request.key}")
             return response
 
         except sqlite3.Error as e:
-            logging.error(f"Server {self.port}  error processing Put request for key {request.key}: {e}")
+            logging.error(f"Server {self.port}  error processing Put request for key {key}: {e}")
             return kvstore_pb2.PutResponse(success=False)
         except grpc.RpcError as e:
-            logging.error(f"Server {self.port}  error forwarding Put request for key {request.key}: {e}")
+            logging.error(f"Server {self.port}  error forwarding Put request for key {key}: {e}")
             # Handle retries or other logic
             return kvstore_pb2.PutResponse(success=False)
 
 
-    def ForwardToNext(self, key, value):
+    def ForwardToNext(self, key, value, to_new_tail=False):
         """Forward key-value pairs to the next node in the chain."""
-        if self.next_stub is not None:
+        if (not self.is_tail and self.next_stub is not None) or to_new_tail:
             try:
                 response = self.next_stub.Put(kvstore_pb2.PutRequest(key=key, value=value, is_forward=True))
                 if response.success:
-                    logging.info(f"Forwarded key '{key}' to next node {self.next_port} in chain.")
+                    logging.info(f"Server {self.port} forwarded KV pair '{key}:{value}' to next node {self.next_port} in chain.")
             except grpc.RpcError as e:
                 logging.error(f"Error forwarding key '{key}' to next node {self.next_port}: {e}")
                 time.sleep(self.retry_interval)
-        else:
-            logging.info(f"Server {self.port} is the tail. No forwarding needed.")
+        
             
     def ForwardAll(self,):
         """
         Forward all key-value pairs to the new tail node in the chain.
         Upon completion, relinquish the tail status.
         """
-        assert self.next_stub, "Next stub not initialized."
-        conn = self.store.get_new_connection()
+        logging.info(f"Server {self.port} forwarding all data to new tail {self.next_port}.")
         try:
+            assert self.next_stub, "Next stub not initialized."
+            conn = self.store.get_new_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT key, value FROM kvstore")
             rows = cursor.fetchall()
             for key, value in rows:
-                self.ForwardToNext(key, value)
+                self.ForwardToNext(key, value, to_new_tail=True)
             
             # Relinquish tail status
             self.is_tail = False 
-            logging.info(f"Server {self.port} data forwarding to new tail completed.")
             self.master_stub.UpdateTailDone(kvstore_pb2.TailUpdated(new_tail_port=self.next_port))
+            logging.info(f"Server {self.port} relinquished tail status to new tail {self.next_port}.")
         except Exception as e:
-            logging.error(f"Error in ForwardAll: {e}")
+            logging.error(f"Error on server {self.port} in ForwardAll to new tail {self.next_port}: {e}")
         finally:
             cursor.close()
             conn.close()
         
                             
-    def UpdateTail(self, request, context):
+    def UpdateTail(self, request, context, retries=3):
         """Notifies the tail KV Store of a new replacement tail."""
-        logging.info(f"Server {self.port} received update tail request.")
         if not self.is_tail:
             logging.info(f"Server {self.port} is not the tail. Rejecting update tail request.")
             return kvstore_pb2.UpdateTailResponse(success=False)
         
-        self.next_port = request.port 
+        self.next_port = request.new_tail_port 
         try:
             self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
             # Spawn another thread to forward all KV pairs to the new tail. Once done, return success.
             threading.Thread(target=self.ForwardAll,).start()
-            logging.info(f"Server {self.port} forwarding data to new tail.")
+            logging.info(f"Server {self.port} committed data to new tail {self.next_port}.")
             return kvstore_pb2.UpdateTailResponse(success=True)
         except Exception as e:
+            if retries > 0:
+                logging.info(f"Server {self.port} error in updating tail. Retrying...")
+                time.sleep(self.retry_interval)
+                return self.UpdateTail(request, context, retries - 1)
+            
             logging.error(f"Server {self.port} error in updating tail: {e}")
             return kvstore_pb2.UpdateTailResponse(success=False)    
 
+    def UpdateHead(self, request, context):
+        self.prev_port = None
+        self.is_head = True
+        logging.info(f"Server {self.port} prompted  head.")
+        return kvstore_pb2.UpdateHeadResponse(success=True)
 
     def Die(self, request, context):
         """Terminate the server to simulate failure."""
@@ -302,7 +313,7 @@ def serve(args):
 
     server.add_insecure_port(f'[::]:{port}')
     server.start()
-    logging.info(f"Server started on port {port}. Waiting for requests...")
+    logging.info(f"Server started on port {port}, next_port: {kvstore_servicer.next_port}. Waiting for requests...")
 
     try:
         server.wait_for_termination()
