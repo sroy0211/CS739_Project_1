@@ -75,7 +75,7 @@ message PingResponse {
 }
 
 message UpdateTailRequest {
-  int32 tail_port = 1; // port of the new tail
+  int32 port = 1; // port of the new tail
 }
 message UpdateTailResponse {
   bool success = 1;

@@ -167,6 +167,7 @@ class MasterNode:
         self.server_stubs[self.tail_port].UpdateTail(kvstore_pb2.UpdateTailRequest(port=port))
         
     def update_tail_done(self, port):
+        """Replica will send this message when replacement & forwarding is done"""
         self.tail_port = port   
         self.heartbeats[port] = time.time()
         logging.info(f"Tail node updated to port {port}.")

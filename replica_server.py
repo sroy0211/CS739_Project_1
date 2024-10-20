@@ -87,7 +87,6 @@ class KeyValueStore:
         Simulate the server crashing. 
         If hit by a missle, all db data is lost and use chain forwarding to recover.
         """
-        self.stop_event.set()
         if self.crash_db:
             logging.info(f"Server {self.port} hit by a missile. All data lost.")
             self.conn.close()
@@ -252,12 +251,16 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             logging.info(f"Server {self.port} is not the tail. Rejecting update tail request.")
             return kvstore_pb2.UpdateTailResponse(success=False)
         
-        self.next_port = request.tail_port 
-        self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
-        # Spawn another thread to forward all KV pairs to the new tail. Once done, return success.
-        threading.Thread(target=self.ForwardAll,).start()
-        logging.info(f"Server {self.port} forwarding data to new tail.")
-        return kvstore_pb2.UpdateTailResponse(success=True)
+        self.next_port = request.port 
+        try:
+            self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
+            # Spawn another thread to forward all KV pairs to the new tail. Once done, return success.
+            threading.Thread(target=self.ForwardAll,).start()
+            logging.info(f"Server {self.port} forwarding data to new tail.")
+            return kvstore_pb2.UpdateTailResponse(success=True)
+        except Exception as e:
+            logging.error(f"Server {self.port} error in updating tail: {e}")
+            return kvstore_pb2.UpdateTailResponse(success=False)    
 
 
     def Die(self, request, context):
@@ -265,12 +268,12 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         logging.info(f"Server on port {self.port} crashed by request.")        
         self.stop_heartbeat.set() # Stops the heartbeat thread
         
-        if request.clean: # Notify master
+        if request.clean: # Notify master I'm down
             self.send_heartbeat(is_alive=False)
         # Shut down the server
         self.server.stop(0)  # This will stop the server gracefully
         self.store.crash()
-        logging.info("Server shut down successfully.")
+        logging.info(f"Server {self.port} shut down successfully.")
         
         context.set_code(grpc.StatusCode.OK)
         context.set_details("Server is shutting down.")
