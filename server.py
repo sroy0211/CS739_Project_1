@@ -75,7 +75,7 @@ class MasterNode:
         self.timeout = timeout
         self.num_replicas = num_replicas
         self.heartbeats = {} # {port: timestamp}
-        self.min_chain_len = math.ceil(self.num_replicas / 2)
+        self.min_chain_len = math.ceil(self.num_replicas / 3 * 2)
 
         self.verbose = verbose
         
@@ -103,17 +103,33 @@ class MasterNode:
         while not self.stop_event.is_set():
             try:
                 current_time = time.time()
+                ports_to_remove = []
+                head_down = False
                 for port, last_hb_time in self.heartbeats.items():
-                    # logging.info(f"Checking heartbeat for port {port}")
+                    # logging.info(f"Checking heartbeat for port {port}. num_live_replicas: {self.num_live_replicas}")
                     if current_time - last_hb_time > self.timeout:
-                        logging.warning(f"Found that server on port {port} has no heartbeat. Attempting replacement...")
+                        logging.warning(f"Found that server on port {port} has no heartbeat. ")
+                        if port == self.head_port:
+                            head_down = True
+                        self.num_live_replicas -= 1
                         
-                        with self.lock:
-                            self.num_live_replicas -= 1
                         if self.num_live_replicas < self.min_chain_len:
-                            logging.error(f"Chain length below threshold, recoverying back to threshold.")
-                            self.replace_server(port)
-                            logging.info(f"Server on port {port} replaced.")
+                            logging.error(f"Chain length below threshold, recovering back to threshold.")
+                            try:
+                                self.replace_server(port)
+                                logging.info(f"Server on port {port} replaced.")
+                            except Exception as e:
+                                logging.error(f"Error in replacing server: {e}")
+                                breakpoint()
+                        else:
+                            ports_to_remove.append(port)
+                
+                # Remove failed ones from chain
+                if len(ports_to_remove) > 0:
+                    self.remove_server(ports_to_remove)
+                if head_down:
+                    self.update_head(self.child_ports[0])
+                    
             except Exception as e:
                 logging.error(f"Error in checking heartbeat: {e}")
             # Check every timeout / 2 seconds
@@ -155,6 +171,22 @@ class MasterNode:
             self.heartbeats[port] = time.time()
         logging.info(f"Replicas spawn on ports: {self.child_ports}")
             
+    def remove_server(self, ports):  
+        """Remove a server from the chain."""
+        ports = [ports] if isinstance(ports, int) else ports
+        
+        with self.lock:
+            for port in ports:
+                del self.child_ports[self.child_order[port]]
+                for i in range(self.child_order[port], len(self.child_ports)):
+                    self.child_order[self.child_ports[i]] -= 1
+                    
+                self.child_order.pop(port)
+                self.heartbeats.pop(port)
+                self.server_stubs.pop(port)
+        logging.info(f"Remove servers on ports: {ports}. Current replicas: {self.child_ports} " +
+                     "num_live_replicas: {self.num_live_replicas}, recovery threshold: {self.min_chain_len}")
+        
     def replace_server(self, port):
         """Replace a failed server by appending a new one to tail, 
             using the original port(as we run in a simulated LAN environment).
@@ -170,37 +202,38 @@ class MasterNode:
             f"--port={port}", 
             f"--master_port={self.port}",  # Pass the master port to the server
             f"--crash_db={args.crash_db}",
+            f"--notify_tail", # Notify old tail for forwarding once it's up
         ]
     
         # Chain structure
         with self.lock:
             del self.child_ports[self.child_order[port]]
-            # Shift ports after the fail one one position to the left
-            for i in range(self.child_order[port] + 1, len(self.child_ports)):
+            for i in range(self.child_order[port], len(self.child_ports)):
                 self.child_order[self.child_ports[i]] -= 1
+                
             self.child_ports.append(port)
             self.child_order[port] = len(self.child_ports) - 1    
-            
-            if port == self.head_port:
+
+        if port == self.head_port:
+            with self.lock:
                 self.head_port = self.child_ports[0]
-                self.update_head(self.head_port)
-            if port == self.tail_port:
+            self.update_head(self.head_port)
+        if port == self.tail_port:
+            with self.lock:
                 self.tail_port = self.child_ports[-1] # Temp tail until the new one is up
-                
         command.append(f"--prev_port={self.tail_port}")
+        
         self.servers_procs[port] = subprocess.Popen(command)  # Start the server as a subprocess
-        
-        # Update chain structure
-        time.sleep(0.3) # wait for starting process
-        self.update_tail(port)
-        
+        self.num_live_replicas += 1
+        self.heartbeats[port] = time.time()
     
     def update_head(self, new_head_port, retries=2):
-        """Update the head node's address in the chain."""
+        """Notify the new head to claim head status."""
         for i in range(retries):
             try:
                 self.server_stubs[new_head_port].UpdateHead(kvstore_pb2.UpdateHeadRequest())
-                self.head_port = new_head_port
+                with self.lock:
+                    self.head_port = new_head_port
                 logging.info(f"Master requested server {self.head_port} to claim head status.")
                 return
             except Exception as e:
@@ -209,18 +242,6 @@ class MasterNode:
                 
         logging.error(f"Failed to update head after {retries} retries.")
             
-    def update_tail(self, new_tail_port, retries=2):
-        """Update the tail node's address in the chain."""
-        for i in range(retries):
-            try:
-                self.server_stubs[self.tail_port].UpdateTail(kvstore_pb2.UpdateTailRequest(new_tail_port=new_tail_port))
-                logging.info(f"Master requested server {self.tail_port} to forward data to new tail.")
-                return
-            except Exception as e:
-                logging.error(f"Error in updating tail: {e}")
-                time.sleep(0.3)
-        
-        logging.error(f"Failed to update tail after {retries} retries.")
             
     def update_tail_done(self, new_tail_port):
         """Replica will send this message when replacement & forwarding is done"""
@@ -327,7 +348,7 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
         hostname = socket.gethostname()
         return kvstore_pb2.GetReplicaResponse(port=next_port, hostname=hostname)
     
-    def GetHeartBeat(self, request, context):
+    def SendHeartBeat(self, request, context):
         """Get the heartbeat status from a replica.
             For now assume running on localhost, so we just need the port
             to identify client.
@@ -340,7 +361,8 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
             logging.error(f"Master error in receiving heartbeat: {e}")
         finally:
             return kvstore_pb2.SendHeartBeatResponse(is_alive=True)
-        
+    
+    
     def UpdateTailDone(self, request, context):
         """Update the tail node's address in the chain."""
         try:
@@ -389,7 +411,7 @@ if __name__ == '__main__':
     parser.add_argument("--verbose", type=eval, default=True, help="Whether to print debug info.")
     args = parser.parse_args()
         
-    create_config_file()  # You can specify the filename and num_replicas if needed
+    create_config_file(num_replicas=args.num_replicas)  # You can specify the filename and num_replicas if needed
     # try:
     ports = read_config_file()
     print("Configuration loaded:", ports)

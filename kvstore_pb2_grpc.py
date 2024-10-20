@@ -418,8 +418,8 @@ class MasterNodeStub(object):
                 request_serializer=kvstore__pb2.GetTailRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.GetReplicaResponse.FromString,
                 )
-        self.GetHeartBeat = channel.unary_unary(
-                '/kvstore.MasterNode/GetHeartBeat',
+        self.SendHeartBeat = channel.unary_unary(
+                '/kvstore.MasterNode/SendHeartBeat',
                 request_serializer=kvstore__pb2.SendHeartBeatRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.SendHeartBeatResponse.FromString,
                 )
@@ -431,6 +431,11 @@ class MasterNodeStub(object):
         self.UpdateTailDone = channel.unary_unary(
                 '/kvstore.MasterNode/UpdateTailDone',
                 request_serializer=kvstore__pb2.TailUpdated.SerializeToString,
+                response_deserializer=kvstore__pb2.Empty.FromString,
+                )
+        self.NewTailUp = channel.unary_unary(
+                '/kvstore.MasterNode/NewTailUp',
+                request_serializer=kvstore__pb2.UpdateTailRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.Empty.FromString,
                 )
 
@@ -450,7 +455,7 @@ class MasterNodeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def GetHeartBeat(self, request, context):
+    def SendHeartBeat(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -463,6 +468,12 @@ class MasterNodeServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def UpdateTailDone(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def NewTailUp(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -481,8 +492,8 @@ def add_MasterNodeServicer_to_server(servicer, server):
                     request_deserializer=kvstore__pb2.GetTailRequest.FromString,
                     response_serializer=kvstore__pb2.GetReplicaResponse.SerializeToString,
             ),
-            'GetHeartBeat': grpc.unary_unary_rpc_method_handler(
-                    servicer.GetHeartBeat,
+            'SendHeartBeat': grpc.unary_unary_rpc_method_handler(
+                    servicer.SendHeartBeat,
                     request_deserializer=kvstore__pb2.SendHeartBeatRequest.FromString,
                     response_serializer=kvstore__pb2.SendHeartBeatResponse.SerializeToString,
             ),
@@ -494,6 +505,11 @@ def add_MasterNodeServicer_to_server(servicer, server):
             'UpdateTailDone': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateTailDone,
                     request_deserializer=kvstore__pb2.TailUpdated.FromString,
+                    response_serializer=kvstore__pb2.Empty.SerializeToString,
+            ),
+            'NewTailUp': grpc.unary_unary_rpc_method_handler(
+                    servicer.NewTailUp,
+                    request_deserializer=kvstore__pb2.UpdateTailRequest.FromString,
                     response_serializer=kvstore__pb2.Empty.SerializeToString,
             ),
     }
@@ -541,7 +557,7 @@ class MasterNode(object):
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def GetHeartBeat(request,
+    def SendHeartBeat(request,
             target,
             options=(),
             channel_credentials=None,
@@ -551,7 +567,7 @@ class MasterNode(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/GetHeartBeat',
+        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/SendHeartBeat',
             kvstore__pb2.SendHeartBeatRequest.SerializeToString,
             kvstore__pb2.SendHeartBeatResponse.FromString,
             options, channel_credentials,
@@ -587,6 +603,23 @@ class MasterNode(object):
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/UpdateTailDone',
             kvstore__pb2.TailUpdated.SerializeToString,
+            kvstore__pb2.Empty.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def NewTailUp(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/NewTailUp',
+            kvstore__pb2.UpdateTailRequest.SerializeToString,
             kvstore__pb2.Empty.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

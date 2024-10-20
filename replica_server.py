@@ -104,7 +104,8 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
                  prev_port=None,
                  next_port=None,
                  retries=3,
-                 retry_interval=0.5
+                 retry_interval=0.5,
+                 notify_tail=False
                  ):
         """
         Initialize the key-value store servicer for gRPC comm.
@@ -116,6 +117,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             prev_port: The port of the previous server in the chain.
             next_port: The port of the next server in the chain.
             retries: The number of retries for forwarding
+            
         """
         self.port = store.port
         self.store = store
@@ -134,25 +136,64 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         self.is_tail = next_port is None
         self.is_head = prev_port is None
         self.next_stub = None
-        # NOTE: only forwarding, don't need previous stub (one-way linkedlist style chain)
-        # if prev_port:
-        #     self.prev_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{prev_port}'))
         if next_port:
             self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{next_port}'))
         
+        if notify_tail:
+            self.notify_tail()
         # Start heartbeat thread
         self.stop_heartbeat = threading.Event()
         self.heartbeat_thread = threading.Thread(target=self.send_heartbeat)
         self.heartbeat_thread.start()
+    
+    def notify_tail(self):
+        logging.info(f"Tail server {self.port} notifying temp tail {self.prev_port} that it's up.")
+        prev_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.prev_port}'))  
+        try:
+            prev_stub.UpdateTail(kvstore_pb2.UpdateTailRequest(new_tail_port=self.port))
+        except grpc.RpcError as e:
+            logging.error(f"New tail on port {self.port} fail to notify old tail {self.prev_port}  {e}")
+
+    def UpdateTail(self, request, context, retries=3):
+        """Notifies the tail KV Store of a new replacement tail."""
+        if not self.is_tail:
+            logging.info(f"Server {self.port} is not the tail. Rejecting update tail request.")
+            return kvstore_pb2.UpdateTailResponse(success=False)
+        
+        self.next_port = request.new_tail_port 
+        try:
+            self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
+            # Spawn another thread to forward all KV pairs to the new tail. Once done, return success.
+            # threading.Thread(target=self.ForwardAll,).start()
+            # NOTE: seems two-way connection inside one rpc call doesn't work
+            context.add_callback(threading.Thread(target=self.ForwardAll,).start)
+            
+            logging.info(f"Server {self.port} committed data to new tail {self.next_port}.")
+            return kvstore_pb2.UpdateTailResponse(success=True)
+        except Exception as e:
+            if retries > 0:
+                logging.info(f"Server {self.port} error in updating tail. Retrying...")
+                time.sleep(self.retry_interval)
+                return self.UpdateTail(request, context, retries - 1)
+            
+            logging.error(f"Server {self.port} error in updating tail: {e}")
+            return kvstore_pb2.UpdateTailResponse(success=False)    
+
+    def UpdateHead(self, request, context):
+        self.prev_port = None
+        self.is_head = True
+        logging.info(f"Server {self.port} acknowledged its new head status.")
+        return kvstore_pb2.UpdateHeadResponse(success=True)
+
 
     def send_heartbeat(self, is_alive=True):
         """Send heartbeat to master to signal that the server is alive."""
         try:
             # Send at least once
-            self.master_stub.GetHeartBeat(kvstore_pb2.SendHeartBeatRequest(is_alive=is_alive, port=self.port))
+            self.master_stub.SendHeartBeat(kvstore_pb2.SendHeartBeatRequest(is_alive=is_alive, port=self.port))
             time.sleep(self.heartbeat_gap)  
             while not self.stop_heartbeat.is_set():
-                self.master_stub.GetHeartBeat(kvstore_pb2.SendHeartBeatRequest(is_alive=is_alive, port=self.port))
+                self.master_stub.SendHeartBeat(kvstore_pb2.SendHeartBeatRequest(is_alive=is_alive, port=self.port))
                 time.sleep(self.heartbeat_gap) 
             
         except Exception as e:
@@ -190,7 +231,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             key, value = request.key, request.value
             old_value, old_value_found = self.store.put(key, value)
             if self.is_tail:
-                logging.info(f"Server {self.port} committed {key}:{value} locally. No need to forward.")
+                logging.info(f"Tail server {self.port} committed {key}:{value} locally. No need to forward.")
             else:
                 # Forward to next in chain
                 self.ForwardToNext(key, value)
@@ -250,35 +291,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             cursor.close()
             conn.close()
         
-                            
-    def UpdateTail(self, request, context, retries=3):
-        """Notifies the tail KV Store of a new replacement tail."""
-        if not self.is_tail:
-            logging.info(f"Server {self.port} is not the tail. Rejecting update tail request.")
-            return kvstore_pb2.UpdateTailResponse(success=False)
-        
-        self.next_port = request.new_tail_port 
-        try:
-            self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
-            # Spawn another thread to forward all KV pairs to the new tail. Once done, return success.
-            threading.Thread(target=self.ForwardAll,).start()
-            logging.info(f"Server {self.port} committed data to new tail {self.next_port}.")
-            return kvstore_pb2.UpdateTailResponse(success=True)
-        except Exception as e:
-            if retries > 0:
-                logging.info(f"Server {self.port} error in updating tail. Retrying...")
-                time.sleep(self.retry_interval)
-                return self.UpdateTail(request, context, retries - 1)
-            
-            logging.error(f"Server {self.port} error in updating tail: {e}")
-            return kvstore_pb2.UpdateTailResponse(success=False)    
-
-    def UpdateHead(self, request, context):
-        self.prev_port = None
-        self.is_head = True
-        logging.info(f"Server {self.port} acknowledged its new head status.")
-        return kvstore_pb2.UpdateHeadResponse(success=True)
-
+                        
     def stop_server(self, ):
         """Schedule the server to stop after a short delay to allow responding to client."""
         self.server.stop(0)  # Graceful shutdown
@@ -315,25 +328,32 @@ def serve(args):
     
     store = KeyValueStore(port, crash_db=args.crash_db)
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=5))
-    kvstore_servicer = KeyValueStoreServicer(store,
-                                             server,
-                                             master_port,
-                                             args.heartbeat_gap,
-                                             args.prev_port,
-                                             args.next_port
-                                            )
-    kvstore_pb2_grpc.add_KVStoreServicer_to_server(kvstore_servicer, server)
+    servicer = KeyValueStoreServicer(store,
+                                    server,
+                                    master_port,
+                                    args.heartbeat_gap,
+                                    args.prev_port,
+                                    args.next_port,
+                                    notify_tail=args.notify_tail
+                                    )
+    kvstore_pb2_grpc.add_KVStoreServicer_to_server(servicer, server)
 
     server.add_insecure_port(f'[::]:{port}')
     server.start()
-    logging.info(f"Server started on port {port}, next_port: {kvstore_servicer.next_port}. Waiting for requests...")
+    if servicer.is_tail:
+        logging.info(f"Tail node started on port {port}. prev_port: {servicer.prev_port}")
+    elif servicer.is_head:
+        logging.info(f"Head node started on port {port}. next_port: {servicer.next_port}")
+    else:
+        logging.info(f"Server started on port {port}." +
+            f"next_port: {servicer.next_port}, prev_port: {servicer.prev_port}.")
 
     try:
         server.wait_for_termination()
     except KeyboardInterrupt:
         server.stop(0)
         logging.info(f"Server on port {port} shutting down.")
-        kvstore_servicer.stop_heartbeat.set()
+        servicer.stop_heartbeat.set()
 
 
 if __name__ == '__main__':
@@ -346,6 +366,7 @@ if __name__ == '__main__':
     parser.add_argument('-i', "--heartbeat_gap", type=int, default=1, help='Heartbeat interval in seconds.')
     parser.add_argument("--crash_db", type=eval, default=True,
                         help="Whether to crash the database in failure simulation, which requires tail data forwarding to recover.")
+    parser.add_argument("--notify_tail", action='store_true', help="Notify master of a running new tail")
     parser.add_argument("--verbose", type=eval, default=True, help="Whether to print debug info.")
     args = parser.parse_args()
     if not args.verbose:
