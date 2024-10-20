@@ -40,7 +40,7 @@ class Cache:
         self.cache.clear()
 
 class KV739Client:
-    def __init__(self, cache_size=100, ttl=0.2, use_cache=True, verbose=False, retries=4):
+    def __init__(self, cache_size=100, ttl=0.2, use_cache=False, verbose=False, retries=4):
         self.channels = []
         self.use_cache = use_cache
         self.cache = Cache(max_size=cache_size, ttl=ttl) if use_cache else None

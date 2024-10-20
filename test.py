@@ -8,6 +8,8 @@ import psutil  # For CPU utilization
 import logging
 import json
 from client_library import KV739Client
+import argparse
+
 
 # Set up logging (if you still want to use it)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -139,6 +141,7 @@ def consistency_test(client):
     print(f"PUT: Updating key '{test_key}' to '{updated_value}'")
     client.kv739_put(test_key, updated_value)
 
+    
     # Step 4: Get and check the updated value
     print(f"GET: Retrieving updated value for key '{test_key}'")
     value = client.kv739_get(test_key)[1]
@@ -154,7 +157,7 @@ def consistency_test(client):
     return True
 
 
-def simulate_failures(client, replica_ports):
+def simulate_failures(client: KV739Client, replica_ports):
     """
     Simulates failures of different nodes.
     """
