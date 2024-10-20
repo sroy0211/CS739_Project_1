@@ -1,272 +1,278 @@
-import argparse
-import logging
+# test_script.py
+import threading
 import time
 import random
-from client_library import KV739Client  # Adjust this import based on your actual client library file name
-import multiprocessing
+import subprocess
+import os
+import psutil  # For CPU utilization
+import logging
+import json
+from client_library import KV739Client
 
-# Set up logging
+# Set up logging (if you still want to use it)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def run_correctness_tests(args):
-    logging.info("Starting correctness tests with multiple clients.")
+def start_master_and_replicas():
+    """Starts the master and replica servers."""
+    # Start the master server
+    master_process = subprocess.Popen(["python3", "server.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    time.sleep(2)  # Wait for the master to start
 
-    num_clients = args.num_clients
-    num_iterations = args.num_iterations  # Number of operations each client will perform
-    keys = ['correctness_test_key_{}'.format(i) for i in range(num_iterations)]
-    value = 'correctness_test_value'
+    # Read the configuration to get replica ports
+    with open('server_config.json', 'r') as f:
+        config = json.load(f)
+    replica_ports = config['child_ports']
 
-    manager = multiprocessing.Manager()
-    failure_flag = manager.Value('i', 0)  # Shared flag to indicate if any client encounters a failure
+    # Return the master process and replica ports for later use
+    return master_process, replica_ports
 
-    def client_worker(client_id):
-        client = KV739Client(cache_size=args.cache_size, ttl=args.ttl, use_cache=args.use_cache)
-        if client.kv739_init(args.server) != 0:
-            logging.error('Client %d: Failed to initialize.', client_id)
-            failure_flag.value = 1
-            return
+def stop_master_and_replicas(master_process):
+    """Stops the master and replica servers."""
+    master_process.terminate()
+    master_process.wait()
+    print("Master and replicas terminated.")
 
-        for i in range(num_iterations):
-            key = keys[i]
-            status, old_value = client.kv739_put(key, value)
-            if status not in [0, 1]:
-                logging.error('Client %d: PUT operation failed.', client_id)
-                failure_flag.value = 1
-                break
-
-            status, returned_value = client.kv739_get(key, args.timeout)
-            if status == 0:
-                if returned_value != value:
-                    logging.error('Client %d: GET operation returned incorrect value.', client_id)
-                    failure_flag.value = 1
-                    break
-            else:
-                logging.error('Client %d: GET operation failed with status %d.', client_id, status)
-                failure_flag.value = 1
-                break
-
-        if client.kv739_shutdown() != 0:
-            logging.error('Client %d: Failed to shutdown.', client_id)
-            failure_flag.value = 1
-
-    # Start client processes
-    processes = []
-    for client_id in range(num_clients):
-        p = multiprocessing.Process(target=client_worker, args=(client_id,))
-        processes.append(p)
-        p.start()
-
-    # Wait for all clients to finish
-    for p in processes:
-        p.join()
-
-    if failure_flag.value == 0:
-        logging.info("Correctness tests completed successfully.")
+def measure_throughput_latency(client, num_operations, workload_type='normal', replica_ports=None):
+    """
+    Measures throughput, latency, and CPU utilization under different workloads.
+    workload_type: 'normal' or 'hot_cold'
+    """
+    keys = [f'key_{i}' for i in range(1000)]
+    if workload_type == 'hot_cold':
+        hot_keys = keys[:10]  # First 10 keys are hot
+        cold_keys = keys[10:]
+        key_distribution = hot_keys * 90 + cold_keys * 10  # 90% hot keys
     else:
-        logging.error("Correctness tests failed.")
+        key_distribution = keys
 
-def run_reliability_tests(args):
-    logging.info("Starting reliability tests with multiple clients.")
+    latencies = []
+    cpu_usage_data = {}
+    for port in replica_ports:
+        cpu_usage_data[port] = []
 
-    num_clients = args.num_clients
-    key = 'reliability_test_key'
-    value = 'reliability_test_value'
-    manager = multiprocessing.Manager()
-    failure_flag = manager.Value('i', 0)  # Shared flag to indicate if any client encounters a failure
-    pause_event = manager.Event()  # Event to pause clients during the server restart
+    # Prepare CPU monitoring thread
+    cpu_monitoring = threading.Event()
+    cpu_thread = threading.Thread(target=monitor_cpu_usage, args=(replica_ports, cpu_usage_data, cpu_monitoring))
+    cpu_thread.start()
 
-    def client_worker(client_id, pause_event):
-        client = KV739Client(cache_size=args.cache_size, ttl=args.ttl, use_cache=args.use_cache)
-        if client.kv739_init(args.server) != 0:
-            logging.error('Client %d: Failed to initialize.', client_id)
-            failure_flag.value = 1
-            return
-
-        # Each client performs a put operation
-        status, _ = client.kv739_put(key, value)
-        if status not in [0, 1]:
-            logging.error('Client %d: PUT operation failed.', client_id)
-            failure_flag.value = 1
-            return
-
-        # Wait for the main process to signal that the server has been restarted
-        pause_event.wait()
-
-        # Get the value after server restart
-        status, returned_value = client.kv739_get(key, args.timeout)
-        if status == 0:
-            if returned_value != value:
-                logging.error('Client %d: GET operation after server restart returned incorrect value.', client_id)
-                failure_flag.value = 1
-        else:
-            logging.error('Client %d: GET operation after server restart failed with status %d.', client_id, status)
-            failure_flag.value = 1
-
-        if client.kv739_shutdown() != 0:
-            logging.error('Client %d: Failed to shutdown.', client_id)
-            failure_flag.value = 1
-
-    # Start client processes
-    processes = []
-    for client_id in range(num_clients):
-        p = multiprocessing.Process(target=client_worker, args=(client_id, pause_event))
-        processes.append(p)
-        p.start()
-
-    # Simulate server crash in the main process
-    if args.simulate_crash:
-        logging.info('Simulating server crash. Please stop the server now.')
-        input('Press Enter after the server has been stopped...')
-        logging.info('Restart the server now.')
-        input('Press Enter after the server has been restarted...')
-
-    # Signal child processes to continue after server restart
-    pause_event.set()
-
-    # Wait for all clients to finish
-    for p in processes:
-        p.join()
-
-    if failure_flag.value == 0:
-        logging.info("Reliability tests completed successfully.")
-    else:
-        logging.error("Reliability tests failed.")
-
-def run_performance_tests(args):
-    logging.info("Starting performance tests with modified 'hot_cold' workload to increase cache hits.")
-
-    num_clients = args.num_clients
-    duration = args.duration
-    num_keys = args.num_keys
-    key_length = args.key_length
-    value_length = args.value_length
-
-    # Generate keys and values
-    keys = ['key' + str(i).zfill(key_length - 3) for i in range(num_keys)]
-    values = ['value' + str(i).zfill(value_length - 5) for i in range(num_keys)]
-
-    # Modify 'hot_cold' workload to increase cache hits
-    hot_ratio = args.hot_ratio  # Fraction of hot keys
-    hot_fraction = args.hot_fraction  # Fraction of accesses to hot keys
-
-    # Increase hot_fraction to favor hot keys more
-    hot_fraction = min(hot_fraction, 1.0)  # Ensure it stays within valid bounds
-    args.hot_fraction = hot_fraction  # Update in args for consistency
-
-    num_hot_keys = max(1, int(num_keys * hot_ratio))
-    hot_keys = keys[:num_hot_keys]
-    cold_keys = keys[num_hot_keys:]
-
-    # Assign higher weights to hot keys to increase cache hits
-    key_weights = []
-    for key in keys:
-        if key in hot_keys:
-            key_weights.append(hot_fraction / num_hot_keys)
-        else:
-            key_weights.append((1 - hot_fraction) / max(1, num_keys - num_hot_keys))
-
-    # Shared variables for processes
-    manager = multiprocessing.Manager()
-    total_operations = manager.Value('i', 0)
-    total_latency = manager.Value('d', 0.0)
-    latency_lock = manager.Lock()
-
-    # Since processes do not share memory, we need to share keys, values, and weights
-    shared_keys = manager.list(keys)
-    shared_values = manager.list(values)
-    shared_key_weights = manager.list(key_weights)
-    shared_hot_keys = manager.list(hot_keys)
-
-    def worker(process_id):
-        # Each process needs its own client instance
-        thread_client = KV739Client(cache_size=args.cache_size, ttl=args.ttl, use_cache=args.use_cache)
-        init_status = thread_client.kv739_init(args.server)
-        if init_status != 0:
-            logging.error('Process %d: Failed to initialize client.', process_id)
-            return
-
-        end_time = time.time() + duration
-        random.seed(process_id)  # Seed random number generator for each process
-
-        while time.time() < end_time:
-            # Favor 'get' operations to utilize cache
-            operation = random.choices(['get', 'put'], weights=[0.8, 0.2], k=1)[0]
-
-            key = random.choices(shared_keys, weights=shared_key_weights, k=1)[0]
-            value = random.choice(shared_values)
-
-            start_time = time.time()
-            if operation == 'put':
-                status, _ = thread_client.kv739_put(key, value)
-            else:
-                status, _ = thread_client.kv739_get(key, args.timeout)
-            latency = time.time() - start_time
-
-            if status == -1:
-                logging.error('Process %d: Operation failed.', process_id)
-                continue
-
-            with latency_lock:
-                total_operations.value += 1
-                total_latency.value += latency
-        shutdown_status = thread_client.kv739_shutdown()
-        if shutdown_status != 0:
-            logging.error('Process %d: Failed to shutdown client.', process_id)
-
-    # Start client processes
-    processes = []
     start_time = time.time()
-    for i in range(num_clients):
-        p = multiprocessing.Process(target=worker, args=(i,))
-        processes.append(p)
-        p.start()
-    # Wait for processes to finish
-    for p in processes:
-        p.join()
-    total_time = time.time() - start_time
+    for _ in range(num_operations):
+        key = random.choice(key_distribution)
+        value = f'value_{random.randint(1, 1000)}'
+        op_type = random.choice(['get', 'put'])
 
-    # Compute and print results
-    avg_latency = total_latency.value / total_operations.value if total_operations.value > 0 else 0
-    throughput = total_operations.value / total_time if total_time > 0 else 0
-    logging.info('Total operations: %d', total_operations.value)
-    logging.info('Total time: %.2f seconds', total_time)
-    logging.info('Throughput: %.2f operations per second', throughput)
-    logging.info('Average latency: %.6f seconds', avg_latency)
-    logging.info("Performance tests completed.")
+        op_start = time.time()
+        if op_type == 'put':
+            client.kv739_put(key, value)
+        else:
+            client.kv739_get(key)
+        op_end = time.time()
+
+        latencies.append(op_end - op_start)
+    end_time = time.time()
+
+    # Stop CPU monitoring
+    cpu_monitoring.set()
+    cpu_thread.join()
+
+    throughput = num_operations / (end_time - start_time)
+    average_latency = sum(latencies) / len(latencies)
+
+    # Calculate average CPU usage per node
+    average_cpu_per_node = {}
+    for port in cpu_usage_data:
+        if cpu_usage_data[port]:
+            average_cpu_per_node[port] = sum(cpu_usage_data[port]) / len(cpu_usage_data[port])
+        else:
+            average_cpu_per_node[port] = 0.0
+
+    return throughput, average_latency, average_cpu_per_node
+
+def monitor_cpu_usage(replica_ports, cpu_usage_data, stop_event):
+    """
+    Monitors CPU utilization of the service instances during workload execution.
+    """
+    processes = {}
+    for port in replica_ports:
+        # Find the process running on the port
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            if 'replica_server.py' in proc.info['cmdline'] and f'--port={port}' in proc.info['cmdline']:
+                processes[port] = proc
+                break
+
+    while not stop_event.is_set():
+        for port, proc in processes.items():
+            if proc.is_running():
+                cpu_percent = proc.cpu_percent(interval=0.1)
+                cpu_usage_data[port].append(cpu_percent)
+            else:
+                cpu_usage_data[port].append(0.0)
+        time.sleep(0.1)  # Sample every 0.1 seconds
+
+def consistency_test(client):
+    """
+    Performs consistency tests to ensure the service provides consistent results.
+    Adds debug information for each step.
+    """
+    test_key = 'consistency_key'
+    initial_value = 'initial_value'
+    updated_value = 'updated_value'
+    
+    print(f"Starting consistency test with key: '{test_key}'")
+
+    # Step 1: Put the initial value
+    print(f"PUT: Setting key '{test_key}' to '{initial_value}'")
+    client.kv739_put(test_key, initial_value)
+
+    # Step 2: Get and check the initial value
+    print(f"GET: Retrieving key '{test_key}'")
+    value = client.kv739_get(test_key)[1]
+    print(f"GET Result: '{test_key}' = '{value}'")
+
+    if value != initial_value:
+        print(f"Consistency test failed: Expected '{initial_value}' but got '{value}'")
+        return False
+    else:
+        print(f"Initial value matches: '{value}'")
+
+    # Step 3: Update the value
+    print(f"PUT: Updating key '{test_key}' to '{updated_value}'")
+    client.kv739_put(test_key, updated_value)
+
+    # Step 4: Get and check the updated value
+    print(f"GET: Retrieving updated value for key '{test_key}'")
+    value = client.kv739_get(test_key)[1]
+    print(f"GET Result: '{test_key}' = '{value}'")
+
+    if value != updated_value:
+        print(f"Consistency test failed: Expected '{updated_value}' but got '{value}'")
+        return False
+    else:
+        print(f"Updated value matches: '{value}'")
+
+    print('Consistency test passed.')
+    return True
+
+
+def simulate_failures(client, replica_ports):
+    """
+    Simulates failures of different nodes.
+    """
+    # Simulate head failure
+    print('Simulating head failure.')
+    head_port = replica_ports[0]
+    client.kv739_die('head', clean=1, server_ports=[head_port])
+    time.sleep(2)  # Wait for the system to handle the failure
+
+    # Test if the service is still available
+    test_key = 'failure_test_key'
+    client.kv739_put(test_key, 'value_after_head_failure')
+    value = client.kv739_get(test_key)[1]
+    if value != 'value_after_head_failure':
+        print('Service unavailable after head failure.')
+        return False
+
+    # Simulate middle failure
+    print('Simulating middle node failure.')
+    if len(replica_ports) > 2:
+        middle_port = replica_ports[1]
+        client.kv739_die('middle', clean=1, server_ports=[middle_port])
+        time.sleep(2)
+        client.kv739_put(test_key, 'value_after_middle_failure')
+        value = client.kv739_get(test_key)[1]
+        if value != 'value_after_middle_failure':
+            print('Service unavailable after middle node failure.')
+            return False
+
+    # Simulate tail failure
+    print('Simulating tail failure.')
+    tail_port = replica_ports[-1]
+    client.kv739_die('tail', clean=1, server_ports=[tail_port])
+    time.sleep(2)
+    client.kv739_put(test_key, 'value_after_tail_failure')
+    value = client.kv739_get(test_key)[1]
+    if value != 'value_after_tail_failure':
+        print('Service unavailable after tail failure.')
+        return False
+
+    print('Failure simulation tests passed.')
+    return True
+
+def availability_test(client, replica_ports):
+    """
+    Measures how many service instances need to be available for the service to be available.
+    """
+    total_instances = len(replica_ports)
+    test_key = 'availability_key'
+    client.kv739_put(test_key, 'initial_value')
+    for i in range(total_instances):
+        port_to_kill = replica_ports[i]
+        print(f'Killing replica on port {port_to_kill}.')
+        client.kv739_die('replica', clean=1, server_ports=[port_to_kill])
+        time.sleep(2)
+
+        # Test if the service is still available
+        try:
+            client.kv739_put(test_key, f'value_after_killing_{i+1}_instances')
+            value = client.kv739_get(test_key)[1]
+            if value != f'value_after_killing_{i+1}_instances':
+                print(f'Service unavailable after killing {i+1} instances.')
+                return i  # Return the number of instances required
+        except Exception as e:
+            print(f'Service unavailable after killing {i+1} instances. Exception: {e}')
+            return i
+
+    print('Service remained available after all instances were killed.')
+    return total_instances
+
+def main():
+    # Start the master and replicas
+    master_process, replica_ports = start_master_and_replicas()
+    time.sleep(5)  # Wait for servers to be fully operational
+
+    # Initialize the client
+    client = KV739Client()
+    client.kv739_init('server_config.json')
+
+    # Throughput and latency measurements under normal workload
+    print('Measuring throughput, latency, and CPU utilization under normal workload.')
+    throughput_normal, latency_normal, cpu_normal = measure_throughput_latency(
+        client, num_operations=1000, workload_type='normal', replica_ports=replica_ports)
+    print(f'Normal workload - Throughput: {throughput_normal:.2f} ops/sec, Average Latency: {latency_normal:.4f} sec')
+    print('Average CPU Utilization per Replica (Normal Workload):')
+    for port, cpu_usage in cpu_normal.items():
+        print(f'  Replica on port {port}: {cpu_usage:.2f}%')
+
+    # Throughput and latency measurements under hot/cold workload
+    print('Measuring throughput, latency, and CPU utilization under hot/cold workload.')
+    throughput_hot_cold, latency_hot_cold, cpu_hot_cold = measure_throughput_latency(
+        client, num_operations=1000, workload_type='hot_cold', replica_ports=replica_ports)
+    print(f'Hot/Cold workload - Throughput: {throughput_hot_cold:.2f} ops/sec, Average Latency: {latency_hot_cold:.4f} sec')
+    print('Average CPU Utilization per Replica (Hot/Cold Workload):')
+    for port, cpu_usage in cpu_hot_cold.items():
+        print(f'  Replica on port {port}: {cpu_usage:.2f}%')
+
+    # Consistency tests
+    print('Performing consistency tests.')
+    consistency_passed = consistency_test(client)
+    if not consistency_passed:
+        print('Consistency tests failed.')
+
+    # Simulate failures
+    print('Simulating failures and testing service availability.')
+    failures_handled = simulate_failures(client, replica_ports)
+    if not failures_handled:
+        print('Failure simulation tests failed.')
+
+    # Availability tests
+    print('Measuring minimum number of instances required for service availability.')
+    min_instances_required = availability_test(client, replica_ports)
+    print(f'Minimum instances required for service availability: {min_instances_required}')
+
+    # Cleanup
+    client.kv739_shutdown()
+    stop_master_and_replicas(master_process)
+    print('Test script completed.')
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='KVStore Test Suite')
-    parser.add_argument('--server', default='localhost:50051', help='Server address (default: localhost:50051)')
-    parser.add_argument('--test_type', choices=['correctness', 'reliability', 'performance'], required=True, help='Type of test to run')
-    parser.add_argument('--duration', type=int, default=60, help='Duration of the test in seconds (default: 60)')
-    parser.add_argument('--num_clients', type=int, default=4, help='Number of client processes (default: 4)')
-    parser.add_argument('--num_keys', type=int, default=100, help='Number of keys to use (default: 100)')
-    parser.add_argument('--key_length', type=int, default=10, help='Length of keys (default: 10)')
-    parser.add_argument('--value_length', type=int, default=100, help='Length of values (default: 100)')
-    parser.add_argument('--workload', choices=['uniform', 'hot_cold'], default='hot_cold', help='Type of workload distribution (default: hot_cold)')
-    parser.add_argument('--hot_ratio', type=float, default=0.1, help='Ratio of hot keys in hot_cold workload (default: 0.1)')
-    parser.add_argument('--hot_fraction', type=float, default=0.9, help='Fraction of requests to hot keys in hot_cold workload (default: 0.9)')
-    parser.add_argument('--num_iterations', type=int, default=10, help='Number of iterations per client in correctness tests (default: 10)')
-    parser.add_argument('--simulate_crash', action='store_true', help='Simulate server crashes (for reliability tests)')
-    parser.add_argument('--cache_size', type=int, default=500, help='Cache size for the client (default: 500)')
-    parser.add_argument('--ttl', type=float, default=5, help='TTL for the client cache in seconds (default: 5)')
-    parser.add_argument('--timeout', type=int, default=5, help='Timeout for GET operations (default: 5 seconds)')
-    parser.add_argument('--use_cache', action='store_true', help='Enable client-side cache')
-    parser.add_argument('--log_level', default='INFO', help='Logging level (default: INFO)')
-    parser.add_argument('--rw_ratio', type=float, default=0.5, 
-                        help='Read-write request ratio for performance tests. Chain replication is good with pipelined reads')
-    parser.add_argument("--crash_db", type=eval, default=True,
-                        help="Whether to crash the database in failure simulation, which requires tail data forwarding to recover.")
-
-    args = parser.parse_args()
-
-    logging.getLogger().setLevel(args.log_level.upper())
-
-    if args.test_type == 'correctness':
-        run_correctness_tests(args)
-    elif args.test_type == 'reliability':
-        run_reliability_tests(args)
-    elif args.test_type == 'performance':
-        run_performance_tests(args)
-    else:
-        logging.error('Unknown test type.')
+    main()
