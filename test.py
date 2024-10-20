@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 def start_master_and_replicas():
     """Starts the master and replica servers."""
     # Start the master server
-    master_process = subprocess.Popen(["python3", "server.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    master_process = subprocess.Popen(["python3", "server.py", "-n", "100"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     time.sleep(2)  # Wait for the master to start
 
     # Read the configuration to get replica ports
