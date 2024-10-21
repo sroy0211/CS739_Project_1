@@ -10,7 +10,6 @@ from client_library import KV739Client
 import argparse
 import math
 
-
 # Set up logging for the script
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger('client_library').setLevel(logging.ERROR)
@@ -19,7 +18,6 @@ logging.getLogger('replica_server').setLevel(logging.ERROR)
 
 def start_master_and_replicas(num_replicas=3):
     """Starts the master and replica servers."""
-    # Start the master server
     master_process = subprocess.Popen(["python3", "server.py", "-n", str(num_replicas)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     time.sleep(5)  # Wait for the master and replicas to start
 
@@ -28,7 +26,6 @@ def start_master_and_replicas(num_replicas=3):
         config = json.load(f)
     replica_ports = config['child_ports']
 
-    # Return the master process and replica ports for later use
     return master_process, replica_ports
 
 def stop_master_and_replicas(master_process):
@@ -84,15 +81,7 @@ def measure_throughput_latency(client, num_operations, workload_type='normal', w
     throughput = num_operations / (end_time - start_time)
     average_latency = sum(latencies) / len(latencies)
 
-    # Calculate average CPU usage per node
-    average_cpu_per_node = {}
-    for port in cpu_usage_data:
-        if cpu_usage_data[port]:
-            average_cpu_per_node[port] = sum(cpu_usage_data[port]) / len(cpu_usage_data[port])
-        else:
-            average_cpu_per_node[port] = 0.0
-
-    return throughput, average_latency, average_cpu_per_node
+    return throughput, average_latency, cpu_usage_data
 
 def monitor_cpu_usage(replica_ports, cpu_usage_data, stop_event):
     """
@@ -117,6 +106,16 @@ def monitor_cpu_usage(replica_ports, cpu_usage_data, stop_event):
             else:
                 cpu_usage_data[port].append(0.0)
         time.sleep(0.1)  # Sample every 0.1 seconds
+
+def print_cpu_usage(cpu_usage_data):
+    """
+    Prints the CPU usage per replica after the workload is finished.
+    """
+    print("\nCPU Usage per Replica:")
+    for port, usage_list in cpu_usage_data.items():
+        print(f"Replica on port {port}:")
+        for i, usage in enumerate(usage_list, start=1):
+            print(f"  Measurement {i}: {usage:.2f}% CPU")
 
 def consistency_test(client):
     """
@@ -200,7 +199,7 @@ def availability_test(client, replica_ports):
 
 def main():
     # Start the master and replicas
-    num_replicas = 100
+    num_replicas = 16
     master_process, replica_ports = start_master_and_replicas(num_replicas=num_replicas)
     time.sleep(5)  # Wait for servers to be fully operational
 
@@ -211,51 +210,55 @@ def main():
     results = {}
 
     # Throughput and latency measurements under normal workload
-    throughput_normal, latency_normal, _ = measure_throughput_latency(
-        client, num_operations=10, workload_type='normal', write_ratio=0.5, replica_ports=replica_ports)
+    throughput_normal, latency_normal, cpu_normal = measure_throughput_latency(
+        client, num_operations=100, workload_type='normal', write_ratio=0.5, replica_ports=replica_ports)
     results['normal_workload'] = {
         'throughput': throughput_normal,
-        'latency': latency_normal
+        'latency': latency_normal,
     }
+    print("\nNormal Workload Results:")
+    print(f"Throughput: {throughput_normal:.2f} ops/sec, Latency: {latency_normal:.4f} sec")
+    print_cpu_usage(cpu_normal)
 
     # Throughput and latency measurements under hot/cold workload
-    throughput_hot_cold, latency_hot_cold, _ = measure_throughput_latency(
-        client, num_operations=10, workload_type='hot_cold', write_ratio=0.5, replica_ports=replica_ports)
+    throughput_hot_cold, latency_hot_cold, cpu_hot_cold = measure_throughput_latency(
+        client, num_operations=100, workload_type='hot_cold', write_ratio=0.5, replica_ports=replica_ports)
     results['hot_cold_workload'] = {
         'throughput': throughput_hot_cold,
-        'latency': latency_hot_cold
+        'latency': latency_hot_cold,
     }
+    print("\nHot/Cold Workload Results:")
+    #print(f"Throughput: {throughput_hot_cold:.2f} ops/sec, Latency: {latency_hot_c
+    print(f"Throughput: {throughput_hot_cold:.2f} ops/sec, Latency: {latency_hot_cold:.4f} sec")
+    print_cpu_usage(cpu_hot_cold)
 
     # Write-heavy workload
-    throughput_write_heavy, latency_write_heavy, _ = measure_throughput_latency(
-        client, num_operations=10, workload_type='normal', write_ratio=0.9, replica_ports=replica_ports)
+    throughput_write_heavy, latency_write_heavy, cpu_write_heavy = measure_throughput_latency(
+        client, num_operations=100, workload_type='normal', write_ratio=0.9, replica_ports=replica_ports)
     results['write_heavy_workload'] = {
         'throughput': throughput_write_heavy,
-        'latency': latency_write_heavy
+        'latency': latency_write_heavy,
     }
+    print("\nWrite-Heavy Workload Results:")
+    print(f"Throughput: {throughput_write_heavy:.2f} ops/sec, Latency: {latency_write_heavy:.4f} sec")
+    print_cpu_usage(cpu_write_heavy)
 
     # Consistency tests
     results['consistency_test'] = consistency_test(client)
+    print(f"\nConsistency Test Passed: {results['consistency_test']}")
 
     # Simulate failures
     results['failure_simulation'] = simulate_failures(client, replica_ports)
+    print(f"Failure Simulation Passed: {results['failure_simulation']}")
 
     # Availability tests
     min_instances_required = availability_test(client, replica_ports)
-    results['availability_test'] = 1
+    results['availability_test'] = min_instances_required
+    print(f"Minimum Instances Required for Service Availability: {min_instances_required}")
 
     # Cleanup
     client.kv739_shutdown()
     stop_master_and_replicas(master_process)
-
-    # Print the results summary
-    print("\nTest Results Summary:")
-    print(f"Normal Workload - Throughput: {results['normal_workload']['throughput']:.2f} ops/sec, Latency: {results['normal_workload']['latency']:.4f} sec")
-    print(f"Hot/Cold Workload - Throughput: {results['hot_cold_workload']['throughput']:.2f} ops/sec, Latency: {results['hot_cold_workload']['latency']:.4f} sec")
-    print(f"Write-Heavy Workload - Throughput: {results['write_heavy_workload']['throughput']:.2f} ops/sec, Latency: {results['write_heavy_workload']['latency']:.4f} sec")
-    print(f"Consistency Test Passed: {results['consistency_test']}")
-    print(f"Failure Simulation Passed: {results['failure_simulation']}")
-    print(f"Minimum Instances Required for Service Availability: {results['availability_test']}")
 
 if __name__ == '__main__':
     main()
