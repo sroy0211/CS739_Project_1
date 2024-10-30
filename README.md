@@ -44,6 +44,12 @@ python3 client.py die <server_type> --clean <0_or_1> --kill_ports <port_numbers>
 <clean>: A clean termination (1) ensures state is flushed before the server shuts down, while 0 terminates immediately.
 <kill_ports>: Provide the port number of the server to terminate.
 
+### Server Leave Simulation
+The client also supports simulating server for leaving (clean or unclean). Use the following command to make the server leave:
+
+```bash
+python3 client.py leave <port_number_for_head_or_tail> --kill_type <head_or_tail> --clean <0_or_1>
+```
 
 ## Testing the System
 
