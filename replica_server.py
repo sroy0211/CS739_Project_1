@@ -156,19 +156,20 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
 
     def UpdateTail(self, request, context, retries=3):
         """Notifies the tail KV Store of a new replacement tail."""
+        self.is_tail = True
         if not self.is_tail:
             logging.info(f"Server {self.port} is not the tail. Rejecting update tail request.")
             return kvstore_pb2.UpdateTailResponse(success=False)
         
         self.next_port = request.new_tail_port 
         try:
-            self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
+            self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.port}'))
             # Spawn another thread to forward all KV pairs to the new tail. Once done, return success.
             # threading.Thread(target=self.ForwardAll,).start()
             # NOTE: seems two-way connection inside one rpc call doesn't work
             context.add_callback(threading.Thread(target=self.ForwardAll,).start)
             
-            logging.info(f"Server {self.port} committed data to new tail {self.next_port}.")
+            logging.info(f"Server {self.port} committed data to new tail {self.port}.")
             return kvstore_pb2.UpdateTailResponse(success=True)
         except Exception as e:
             if retries > 0:
@@ -203,6 +204,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
     def Get(self, request, context):
         """Handle 'Get' requests."""
         # Not tail, reject req and ask client to go to master for new tail.
+        self.is_tail = True
         if not self.is_tail:
             logging.info(f"Server on port {self.port} is not the tail. Rejecting Get request.")
             return kvstore_pb2.GetResponse(success=False)
@@ -271,7 +273,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         Forward all key-value pairs to the new tail node in the chain.
         Upon completion, relinquish the tail status.
         """
-        logging.info(f"Server {self.port} forwarding all data to new tail {self.next_port}.")
+        logging.info(f"Server {self.port} forwarding all data to new tail {self.port}.")
         try:
             assert self.next_stub, "Next stub not initialized."
             conn = self.store.get_new_connection()
@@ -283,10 +285,10 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             
             # Relinquish tail status
             self.is_tail = False 
-            self.master_stub.UpdateTailDone(kvstore_pb2.TailUpdated(new_tail_port=self.next_port))
-            logging.info(f"Server {self.port} transferred tail status to new tail {self.next_port}.")
+            self.master_stub.UpdateTailDone(kvstore_pb2.TailUpdated(new_tail_port=self.port))
+            logging.info(f"Server {self.port} transferred tail status to new tail {self.port}.")
         except Exception as e:
-            logging.error(f"Error on server {self.port} in ForwardAll to new tail {self.next_port}: {e}")
+            logging.error(f"Error on server {self.port} in ForwardAll to new tail {self.port}: {e}")
         finally:
             cursor.close()
             conn.close()
@@ -319,7 +321,34 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             context.add_callback(self.stop_server)
 
         return response
+    
+    def stop_server(self, ):
+        """Schedule the server to stop after a short delay to allow responding to client."""
+        self.server.stop(0)  # Graceful shutdown
+        self.server.wait_for_termination()
+        self.store.crash()
+        logging.info(f"Server {self.port} shut down successfully.")
+    
+    def Leave(self, request, context):
+        """Terminate the server to simulate failure."""
+        self.stop_heartbeat.set()  # Stops the heartbeat thread
+        clean = request.clean
 
+        if clean:
+            logging.info(f"Server on port {self.port} crashed by clean kill. Notifying master.")  
+            self.send_heartbeat(is_alive=False)
+        else:
+            logging.info(f"Server on port {self.port} crashed by non-clean kill.")
+
+        # Prepare the response
+        response = kvstore_pb2.LeaveResponse(success=True)
+        # Send the response before shutting down
+        context.set_code(grpc.StatusCode.OK)
+        context.set_details("Server is shutting down.")
+        if clean:
+            context.add_callback(self.stop_server)
+
+        return response
 
 
 def serve(args):
