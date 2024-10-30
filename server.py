@@ -40,7 +40,7 @@ def scan_ports(num_ports=3, start_port=50000, end_port=60000):
                 ports.append(port)
     return ports
 
-def create_config_file(filename='server_config.json', num_replicas=3):
+def create_config_file(filename='server_config.json', num_replicas=10):
     """Create a configuration file for server instances."""
     ports = scan_ports(num_replicas + 1)
     ports = {"child_ports": ports[:-1], "master_port": ports[-1]}
@@ -105,12 +105,15 @@ class MasterNode:
                 current_time = time.time()
                 ports_to_remove = []
                 head_down = False
+                tail_down = False
                 for port, last_hb_time in self.heartbeats.items():
                     # logging.info(f"Checking heartbeat for port {port}. num_live_replicas: {self.num_live_replicas}")
                     if current_time - last_hb_time > self.timeout:
                         logging.warning(f"Found that server on port {port} has no heartbeat. ")
                         if port == self.head_port:
                             head_down = True
+                        elif port == self.tail_port:
+                            tail_down = True
                         self.num_live_replicas -= 1
                         
                         if self.num_live_replicas < self.min_chain_len:
@@ -129,6 +132,10 @@ class MasterNode:
                     self.remove_server(ports_to_remove)
                 if head_down:
                     self.update_head(self.child_ports[0])
+                    logging.info("Head Removed")
+                elif tail_down:
+                    self.update_tail(self.child_ports[-1])
+                    logging.info("Tail Removed")
                     
             except Exception as e:
                 logging.error(f"Error in checking heartbeat: {e}")
@@ -213,14 +220,16 @@ class MasterNode:
                 
             self.child_ports.append(port)
             self.child_order[port] = len(self.child_ports) - 1    
-
+        logging.info(f"Port info {port},tail port{self.tail_port}")
         if port == self.head_port:
             with self.lock:
                 self.head_port = self.child_ports[0]
             self.update_head(self.head_port)
-        if port == self.tail_port:
+        elif port == self.tail_port:
             with self.lock:
                 self.tail_port = self.child_ports[-1] # Temp tail until the new one is up
+            self.update_tail_done(self.child_ports[-1])
+        logging.info(f"Tail New port {self.child_ports[-1]}")
         command.append(f"--prev_port={self.tail_port}")
         
         self.servers_procs[port] = subprocess.Popen(command)  # Start the server as a subprocess
@@ -241,6 +250,22 @@ class MasterNode:
                 time.sleep(0.3)
                 
         logging.error(f"Failed to update head after {retries} retries.")
+
+    
+    def update_tail(self, new_tail_port, retries=2):
+        """Notify the new head to claim head status."""
+        for i in range(retries):
+            try:
+                self.server_stubs[new_tail_port].UpdateTail(kvstore_pb2.UpdateTailRequest())
+                with self.lock:
+                    self.tail_port = new_tail_port
+                logging.info(f"Master requested server {self.tail_port} to claim tail status.")
+                return
+            except Exception as e:
+                logging.error(f"Error in promoting server {new_tail_port} to head: {e}")
+                time.sleep(0.3)
+                
+        logging.error(f"Failed to update tail after {retries} retries.")
             
             
     def update_tail_done(self, new_tail_port):
@@ -404,7 +429,7 @@ def serve(args, ports):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Start a chain replication server.')
     parser.add_argument("-p", "--port", type=int, default=50000, help="For both master and replica. Port number to start the current server on")
-    parser.add_argument("-n", "--num_replicas", type=int, default=3, help="Number of server replicas in chain")
+    parser.add_argument("-n", "--num_replicas", type=int, default=10, help="Number of server replicas in chain")
     parser.add_argument("-t", "--timeout", type=int, default=3, help="Timeout for heartbeat detection. Should be less than cache TTL.")
     parser.add_argument("--crash_db", type=eval, default=True,
                         help="Whether to crash the database in failure simulation, which requires tail data forwarding to recover.")
