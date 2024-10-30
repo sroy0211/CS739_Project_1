@@ -66,6 +66,17 @@ message DieResponse {
   string message = 2; // Optional message on die
 }
 
+// New message types for the Leave functionality
+message LeaveRequest {
+  bool clean = 1; // Added clean field to indicate the shutdown type
+  string message = 2; // Optional message to send during die
+}
+
+message LeaveResponse {
+  bool success = 1;
+  string message = 2; // Optional message on die
+}
+
 // New message types for the Ping functionality
 message PingRequest {
 }
@@ -97,6 +108,7 @@ service KVStore {
   rpc PutToNext(PutRequest) returns (PutResponse);  // To forward Put requests to the next node in the chain
   // New Die RPC method
   rpc Die(DieRequest) returns (DieResponse);
+  rpc Leave(LeaveRequest) returns (LeaveResponse);
   
   // New Ping RPC method
   rpc Ping(PingRequest) returns (PingResponse);
