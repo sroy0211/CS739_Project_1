@@ -36,11 +36,11 @@ class Cache:
         self.cache[key] = (value, time.time())
 
     def clear(self):
-        logging.info("Clearing cache due to server crash.")
+        logging.info("Clearing cache.")
         self.cache.clear()
 
 class KV739Client:
-    def __init__(self, cache_size=100, ttl=0.2, use_cache=False, verbose=False, retries=4):
+    def __init__(self, cache_size=100, ttl=0.2, use_cache=False, verbose=False, retries=4, host='localhost'):
         self.channels = []
         self.use_cache = use_cache
         self.cache = Cache(max_size=cache_size, ttl=ttl) if use_cache else None
@@ -49,6 +49,7 @@ class KV739Client:
         self.tail_stub = self.tail_port = None
         self.verbose = verbose
         self.retries = retries
+        self.host = host
         
         if not verbose:
             logging.disable(logging.INFO)
@@ -62,7 +63,7 @@ class KV739Client:
 
             # Connect to the master server
             self.master_port = config['master_port']
-            master_channel = grpc.insecure_channel(f'localhost:{self.master_port}')
+            master_channel = grpc.insecure_channel(f'{self.host}:{self.master_port}')
             self.master_stub = kvstore_pb2_grpc.MasterNodeStub(master_channel)
             logging.info(f"Connected to master server at port: {self.master_port}")
 
@@ -155,14 +156,14 @@ class KV739Client:
 
         try:
             if debug_port is not None:
-                temp_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{debug_port}'))
+                temp_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'{self.host}:{debug_port}'))
                 response = temp_stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
             else:
                 # Make a Get request to the tail server
                 response = self.tail_stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
 
             # if not success, reach master for tail
-            if not response.success and retries >= 0:
+            if not response.success and retries > 0:
                 logging.info(f"Server {self.tail_port} rejected the request. Maybe it's not the tail? Remaining retries: {retries}")
                 self._get_tail_stub()
                 return self.kv739_get(key, timeout, retries - 1)
@@ -192,7 +193,7 @@ class KV739Client:
             return -1, ''
 
 
-    def kv739_put(self, key, value, timeout=5, retries=3):
+    def kv739_put(self, key, value, timeout=5, retries=4):
         """Performs a PUT operation using the head server."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
@@ -216,9 +217,8 @@ class KV739Client:
 
         except grpc.RpcError as e:
             logging.error(f"PUT operation failed: {e}")
-            
             if retries > 0:
-                self._get_head_stub(replace=True) # Reset head stub for next attempt
+                self._get_head_stub() # Reset head stub for next attempt
                 logging.info(f"Retrying... attempts left: {retries}")
                 return self.kv739_put(key, value, timeout, retries - 1)  # Retry the operation
 
@@ -258,7 +258,7 @@ class KV739Client:
         return 0  # Return success
 
 
-    def kv739_die(self, server_type: str, clean: int = 0, server_ports: List[int] = None):
+    def kv739_die(self, server_type: str, clean: int = 0, server_ports: List[int] = None, host='localhost'):
         """Kills the specified server using its stub."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
@@ -267,7 +267,7 @@ class KV739Client:
             if server_ports is not None:
                 # Kill the specified server
                 for server_port in server_ports:
-                    stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{server_port}'))
+                    stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'{host}:{server_port}'))
                     logging.info(f"Connected to server at port: {server_port}")
                     stub.Die(kvstore_pb2.DieRequest(clean=clean))
                     
@@ -317,12 +317,12 @@ class KV739Client:
             logging.error(f"Unexpected error while killing {server_type} server: {e}")
             return -1  # Failure on other exceptions
 
-    def kv739_start(self, server_ports: List[int] = None, new: int = 0):
+    def kv739_start(self, server_ports: List[int] = None, host='localhost', new: int = 1,):
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
         
 
-    def kv739_leave(self, server_type: str, clean: int = 0, server_ports: List[int] = None):
+    def kv739_leave(self, server_type: str, clean: int = 0, server_ports: List[int] = None, host='localhost'):
         """Kills the specified server using its stub."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
@@ -331,7 +331,7 @@ class KV739Client:
             if server_ports is not None:
                 # Kill the specified server
                 for server_port in server_ports:
-                    stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{server_port}'))
+                    stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'{host}:{server_port}'))
                     logging.info(f"Connected to server at port: {server_port}")
                     stub.Leave(kvstore_pb2.LeaveRequest(clean=clean))
                     
@@ -404,17 +404,16 @@ if __name__ == "__main__":
     parser.add_argument('value', nargs='?', default='', help='The value for the PUT operation (optional for GET)')
     parser.add_argument("--kill_type", default="head", choices=["head", "tail", "middle"], help="The server type to terminate for die function")
     parser.add_argument("--debug_port", type=int, default=None, help="Connect to the replica at this port for debugging")
-    parser.add_argument('--instance_name', type=str, help="The instance name in 'host:port' format for the (start and leave) function.")
     parser.add_argument('--new', type=int, choices=[0, 1], help="1 to start a new instance, 0 to recover for the start function.")
     parser.add_argument('--clean', type=int, choices=[0, 1], help='Clean termination (1 for clean, 0 for immediate) for (die and leave) function.')
     parser.add_argument('--config_file', type=str, default="server_config.json", help='Path to config file with server instances')
     parser.add_argument('--timeout', type=int, default=5, help='Timeout for the GET operation (default: 5 seconds)')
     parser.add_argument('--cache_size', type=int, default=100, help='Maximum size of the cache (default: 100 entries)')
-    parser.add_argument('--ttl', type=float, default=0.2, help='Time-to-Live for cache entries in seconds (default: 0.2)')
-    parser.add_argument('--use_cache', default=False, action='store_true', help='Enable client-side cache')
+    parser.add_argument('--ttl', type=float, default=0.5, help='Time-to-Live for cache entries in seconds (default: 0.2)')
+    parser.add_argument('--use_cache', default=True, action='store_true', help='Enable client-side cache')
     parser.add_argument('--verbose', default=True, type=eval, help='Enable debug logging')
     parser.add_argument('--kill_ports', nargs='+', type=int, help='List of ports to kill')
-
+    parser.add_argument('--host', type=str, default='localhost', help='Host address for the server to do operations')
     args = parser.parse_args()
     # Validate args
     if args.operation in ['get', 'put']:
@@ -456,17 +455,17 @@ if __name__ == "__main__":
                 
         elif args.operation == 'die':
             if args.clean is not None:
-                client.kv739_die(args.kill_type, args.clean, args.kill_ports)
+                client.kv739_die(args.kill_type, args.clean, args.kill_ports, host=args.host)
             else:
                 logging.error("DIE operation requires --clean argument (0 or 1).")
         elif args.operation == 'start':
             if args.new is not None:
-                client.kv739_start(args.kill_ports, args.new)
+                client.kv739_start(args.kill_ports, args.host, args.new)
             else:
                 logging.error("Failed to start a new instance of the service. --new argument (0 or 1).")
         elif args.operation == 'leave':
             if args.clean is not None:
-                client.kv739_leave(args.kill_type, args.clean, args.kill_ports)
+                client.kv739_leave(args.kill_type, args.clean, args.kill_ports, host=args.host)
             else:
                 logging.error("Failed to remove the instance of the service. --clean argument (0 or 1).")
 

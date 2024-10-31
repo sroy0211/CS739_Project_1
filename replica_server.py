@@ -9,6 +9,7 @@ import os
 import time
 import threading
 from typing import Iterable, Tuple
+import socket
 
 # Set up logging to file
 logging.basicConfig(
@@ -136,6 +137,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         self.is_tail = next_port is None
         self.is_head = prev_port is None
         self.next_stub = None
+        self.updating_tail = False
         if next_port:
             self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{next_port}'))
         
@@ -150,41 +152,41 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         logging.info(f"Tail server {self.port} notifying temp tail {self.prev_port} that it's up.")
         prev_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.prev_port}'))  
         try:
-            prev_stub.UpdateTail(kvstore_pb2.UpdateTailRequest(new_tail_port=self.port))
+            prev_stub.TransferToNewTail(kvstore_pb2.TransferToNewTailRequest(new_tail_port=self.port))
         except grpc.RpcError as e:
             logging.error(f"New tail on port {self.port} fail to notify old tail {self.prev_port}  {e}")
 
-    def UpdateTail(self, request, context, retries=3):
-        """Notifies the tail KV Store of a new replacement tail."""
-        self.is_tail = True
+    def TransferToNewTail(self, request, context, retries=3):
+        """Notifies the current tail of a new replacement tail."""
         if not self.is_tail:
             logging.info(f"Server {self.port} is not the tail. Rejecting update tail request.")
-            return kvstore_pb2.UpdateTailResponse(success=False)
+            return kvstore_pb2.TransferToNewTailResponse(success=False)
         
         self.next_port = request.new_tail_port 
         try:
-            self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.port}'))
+            self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
             # Spawn another thread to forward all KV pairs to the new tail. Once done, return success.
             # threading.Thread(target=self.ForwardAll,).start()
             # NOTE: seems two-way connection inside one rpc call doesn't work
-            context.add_callback(threading.Thread(target=self.ForwardAll,).start)
-            
-            logging.info(f"Server {self.port} committed data to new tail {self.port}.")
-            return kvstore_pb2.UpdateTailResponse(success=True)
+            # context.add_callback(threading.Thread(target=self.ForwardAll,).start)
+            self.ForwardAll()
+        
+            logging.info(f"Server {self.port} committed data to new tail {self.next_port}.")
+            return kvstore_pb2.TransferToNewTailResponse(success=True)
         except Exception as e:
             if retries > 0:
                 logging.info(f"Server {self.port} error in updating tail. Retrying...")
                 time.sleep(self.retry_interval)
-                return self.UpdateTail(request, context, retries - 1)
+                return self.TransferToNewTail(request, context, retries - 1)
             
             logging.error(f"Server {self.port} error in updating tail: {e}")
-            return kvstore_pb2.UpdateTailResponse(success=False)    
+            return kvstore_pb2.TransferToNewTailResponse(success=False)    
 
-    def UpdateHead(self, request, context):
+    def PromoteToHead(self, request, context):
         self.prev_port = None
         self.is_head = True
         logging.info(f"Server {self.port} acknowledged its new head status.")
-        return kvstore_pb2.UpdateHeadResponse(success=True)
+        return kvstore_pb2.PromoteToHeadResponse(success=True)
 
 
     def send_heartbeat(self, is_alive=True):
@@ -204,7 +206,6 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
     def Get(self, request, context):
         """Handle 'Get' requests."""
         # Not tail, reject req and ask client to go to master for new tail.
-        self.is_tail = True
         if not self.is_tail:
             logging.info(f"Server on port {self.port} is not the tail. Rejecting Get request.")
             return kvstore_pb2.GetResponse(success=False)
@@ -259,13 +260,19 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
     def ForwardToNext(self, key, value, to_new_tail=False):
         """Forward key-value pairs to the next node in the chain."""
         if (not self.is_tail and self.next_stub is not None) or to_new_tail:
-            try:
-                response = self.next_stub.Put(kvstore_pb2.PutRequest(key=key, value=value, is_forward=True))
-                if response.success:
-                    logging.info(f"Server {self.port} forwarded KV pair '{key}:{value}' to next node {self.next_port} in chain.")
-            except grpc.RpcError as e:
-                logging.error(f"Error forwarding key '{key}' to next node {self.next_port}: {e}")
-                time.sleep(self.retry_interval)
+            for i in range(self.retries):
+                try:
+                    response = self.next_stub.Put(kvstore_pb2.PutRequest(key=key, value=value, is_forward=True))
+                    if response.success:
+                        logging.info(f"Server {self.port} forwarded KV pair '{key}:{value}' to next node {self.next_port} in chain.")
+                except grpc.RpcError as e:
+                    logging.error(f"Error forwarding key '{key}' to next node {self.next_port}: {e}. Remaining retries: {i}")
+                    time.sleep(self.retry_interval)
+                    next = self.master_stub.GetNextInChain(kvstore_pb2.GetNextInChainRequest(port=self.port, hostname=socket.gethostname()))
+                    logging.info(f"Server {self.port} updated next node to {next.port} to forward to.")
+                    self.next_port = next.port
+                    hostname = next.hostname
+                    self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'{hostname}:{self.next_port}'))
         
             
     def ForwardAll(self,):
@@ -273,25 +280,28 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         Forward all key-value pairs to the new tail node in the chain.
         Upon completion, relinquish the tail status.
         """
-        logging.info(f"Server {self.port} forwarding all data to new tail {self.port}.")
+        
         try:
             assert self.next_stub, "Next stub not initialized."
             conn = self.store.get_new_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT key, value FROM kvstore")
             rows = cursor.fetchall()
-            for key, value in rows:
-                self.ForwardToNext(key, value, to_new_tail=True)
-            
+            # check if rows is empty
+            if rows:
+                logging.info(f"Server {self.port} forwarding all data to node {self.next_port}.")
+                for key, value in rows:
+                    self.ForwardToNext(key, value, to_new_tail=True)
+        
+        except Exception as e:
+            logging.error(f"Error in ForwardAll on server {self.port} to node {self.next_port}: {e}. Data can be lost.")
+        finally:
             # Relinquish tail status
             self.is_tail = False 
-            self.master_stub.UpdateTailDone(kvstore_pb2.TailUpdated(new_tail_port=self.port))
-            logging.info(f"Server {self.port} transferred tail status to new tail {self.port}.")
-        except Exception as e:
-            logging.error(f"Error on server {self.port} in ForwardAll to new tail {self.port}: {e}")
-        finally:
-            cursor.close()
-            conn.close()
+            logging.info(f"Server {self.port} telling master that it's transferred tail status to node {self.next_port}.")
+            self.master_stub.TransferToNewTailDone(kvstore_pb2.TailUpdated(new_tail_port=self.next_port))
+            
+
         
                         
     def stop_server(self, ):
