@@ -317,9 +317,21 @@ class KV739Client:
             logging.error(f"Unexpected error while killing {server_type} server: {e}")
             return -1  # Failure on other exceptions
 
-    def kv739_start(self, server_ports: List[int] = None, host='localhost', new: int = 1,):
+    def kv739_start(self, server_port: List[int] = None, host='localhost', new: int = 1):
+        """Starts a new server by asking the master stub."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
+        try:
+            res = self.master_stub.AddServer(kvstore_pb2.AddServerRequest(new=new, ports=server_port, hostname=host))
+            if res.success:
+                logging.info(f"Successfully started new server at port: {server_port}")
+                return 0
+            else:
+                logging.error(f"Failed to start new server at port: {server_port}")
+                return -1
+        except grpc.RpcError as e:
+            logging.error(f"gRPC error while starting new server at port {server_port}: {e}")
+            return -1
         
 
     def kv739_leave(self, server_type: str, clean: int = 0, server_ports: List[int] = None, host='localhost'):
@@ -413,6 +425,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_cache', default=True, action='store_true', help='Enable client-side cache')
     parser.add_argument('--verbose', default=True, type=eval, help='Enable debug logging')
     parser.add_argument('--kill_ports', nargs='+', type=int, help='List of ports to kill')
+    parser.add_argument("--start_port", type=int, default=None, help="Port to start the new server")
     parser.add_argument('--host', type=str, default='localhost', help='Host address for the server to do operations')
     args = parser.parse_args()
     # Validate args
@@ -460,7 +473,7 @@ if __name__ == "__main__":
                 logging.error("DIE operation requires --clean argument (0 or 1).")
         elif args.operation == 'start':
             if args.new is not None:
-                client.kv739_start(args.kill_ports, args.host, args.new)
+                client.kv739_start(args.start_port, args.host, args.new)
             else:
                 logging.error("Failed to start a new instance of the service. --new argument (0 or 1).")
         elif args.operation == 'leave':

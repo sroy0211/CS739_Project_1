@@ -92,8 +92,8 @@ class MasterNode:
         
         self.lock = threading.Lock()
         # Spawn replica servers
-        self.spawn_servers()
-        self.replace_in_progress = False
+        self.spawn_servers(self.child_ports)
+        self.append_to_tail_in_progress = False
         
         # Runs an infinite loop to check for heartbeats
         self.stop_event = threading.Event()
@@ -114,9 +114,12 @@ class MasterNode:
             with self.lock:
                 self.heartbeats[port] = time.time()
             
-    def spawn_servers(self):
+    def spawn_servers(self, child_ports: Union[int, List[int]]):
         """Intialize the replica servers and initialize them with master and child ports."""
-        for i, port in enumerate(self.child_ports):
+        if isinstance(child_ports, int):
+            child_ports = [child_ports]
+            
+        for i, port in enumerate(child_ports):
             command = [
                 "python3", "replica_server.py",  # Launch the same server.py file
                 f"--port={port}", 
@@ -129,17 +132,18 @@ class MasterNode:
                 
             # Chain structure
             if i > 0:
-                command.append(f"--prev_port={self.child_ports[i - 1]}")
-            if i < len(self.child_ports) - 1:
-                command.append(f"--next_port={self.child_ports[i + 1]}")
+                command.append(f"--prev_port={child_ports[i - 1]}")
+            if i < len(child_ports) - 1:
+                command.append(f"--next_port={child_ports[i + 1]}")
                 
             process = subprocess.Popen(command)  # Start the server as a subprocess
             # Spawn the server with the required configuration
             self.servers_procs[port] = process  # Store the process object for management
             self.server_stubs[port] = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'{self.host}:{port}'))
             self.heartbeats[port] = time.time()
-        logging.info(f"Replicas spawn on ports: {self.child_ports}")
-            
+        logging.info(f"Replicas spawn on ports: {child_ports}")
+    
+    
     def check_heartbeat(self):
         """Check for heartbeats and remove failed servers."""
         while not self.stop_event.is_set():
@@ -168,7 +172,6 @@ class MasterNode:
             # Check every timeout / 2 seconds
             time.sleep(self.timeout // 2)
         
-            
     def remove_server(self, ports):  
         """Remove a server from the chain."""
         ports = [ports] if isinstance(ports, int) else ports
@@ -185,6 +188,25 @@ class MasterNode:
                 self.servers_procs[port].kill()
         logging.info(f"Remove servers on ports: {ports}. Current replicas: {self.child_ports} " +
                      "num_live_replicas: {self.num_live_replicas}, recovery threshold: {self.min_chain_len}")
+    
+    def add_server(self, port):
+        """Add a new server to the tail of the chain."""
+        self.child_ports.append(port)
+        self.child_order[port] = len(self.child_ports) - 1
+        command = [
+            "python3", "replica_server.py",  # Launch the same server.py file
+            f"--port={port}",
+            f"--master_port={self.port}",  # Pass the master port to the server
+            f"--crash_db={args.crash_db}",
+            f"--verbose={self.verbose}"
+            f"--prev_port={self.tail_port}",
+            "--notify_tail", # Notify old tail for forwarding
+        ]
+        process = subprocess.Popen(command)  # Start the server as a subprocess
+        self.heartbeats[port] = time.time()
+        self.servers_procs[port] = process
+        logging.info(f"Started server on port {port} to the chain.")
+
         
     def replace_server(self, port):
         """Replace a failed server by appending a new one to tail, 
@@ -192,7 +214,6 @@ class MasterNode:
             1. Reads the old database (when the node isn't totally destroyed)
             2. Starts with an empty database, fetch data from previous node
         """
-
         # Kill the old server
         self.servers_procs[port].kill()
         # Start a new server on the same port
@@ -206,24 +227,23 @@ class MasterNode:
 
         # Chain structure
         start_time = time.time()
-        while self.replace_in_progress:
+        while self.append_to_tail_in_progress:
             logging.info(f"Waiting for previous tail to finish forwarding to replica {self.tail_port}")
             time.sleep(0.06)
             if time.time() - start_time > self.timeout:
                 # Drop last tail if forwarding times out
                 logging.error(f"Forwarding to new tail {self.tail_port} times out. Dropping it.")
                 self.remove_server(self.tail_port)
-                self.replace_in_progress = False
+                self.append_to_tail_in_progress = False
                 
         with self.lock:
-            self.replace_in_progress = True
+            self.append_to_tail_in_progress = True
             del self.child_ports[self.child_order[port]]
             for i in range(self.child_order[port], len(self.child_ports)):
                 self.child_order[self.child_ports[i]] -= 1
                 
             self.child_ports.append(port)
             self.child_order[port] = len(self.child_ports) - 1    
-        
             if port == self.head_port:
                 self.head_port = self.child_ports[0]
                 self.promote_to_head(self.head_port)
@@ -251,11 +271,12 @@ class MasterNode:
     def update_tail_done(self, new_tail_port):
         """Replica will send this message when replacement & forwarding is done"""
         with self.lock:
-            self.replace_in_progress = False
+            self.append_to_tail_in_progress = False
             self.tail_port = new_tail_port   
             logging.info(f"Master updated tail port to {new_tail_port}.")
             self.heartbeats[new_tail_port] = time.time()
         logging.info(f"Tail node resurrected on port {new_tail_port}. List of current replicas: {self.child_ports}")
+        
         
     def get_head(self, replace=False):
         """Get the head node's address in the chain. If it is down, replace it by spawning a new server."""
@@ -368,7 +389,18 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
             logging.error(f"Master error in receiving heartbeat: {e}")
         finally:
             return kvstore_pb2.SendHeartBeatResponse(is_alive=True)
-    
+        
+    def AddServer(self, request, context):
+        """Add a new server to the chain."""
+        try:
+            new_port = scan_ports(1)[0]
+            self.master_node.add_server(new_port)
+            logging.info(f"New server spawned on port {new_port}.")
+            return kvstore_pb2.AddServerResponse(success=True)
+        except Exception as e:
+            logging.error(f"Master error in AddServer: {e}")
+            return kvstore_pb2.AddServerResponse(success=False)
+            
     
     def TransferToNewTailDone(self, request, context):
         """Update the tail node's address in the chain."""

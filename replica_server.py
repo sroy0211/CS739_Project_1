@@ -274,7 +274,6 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
                     self.next_port = next.port
                     hostname = next.hostname
                     self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'{hostname}:{self.next_port}'))
-        
             
     def ForwardAll(self,):
         """
@@ -287,7 +286,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             cursor = conn.cursor()
             cursor.execute("SELECT key, value FROM kvstore")
             rows = cursor.fetchall()
-            # check if rows is empty
+            # Check if rows is empty
             if rows:
                 logging.info(f"Server {self.port} forwarding all data to node {self.next_port}.")
                 for key, value in rows:

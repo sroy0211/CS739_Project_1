@@ -145,10 +145,21 @@ message GetNextInChainRequest{
   string hostname = 2; // hostname of the current node
 }
 
+message AddServerRequest{
+  int32 port = 1;
+  string hostname = 2;
+  bool new = 3;
+}
+
+message AddServerResponse{
+  bool success = 1;
+}
+
 service MasterNode {
   rpc GetHead(GetHeadRequest) returns (GetReplicaResponse);
   rpc GetTail(GetTailRequest) returns (GetReplicaResponse);
   rpc SendHeartBeat(SendHeartBeatRequest) returns (SendHeartBeatResponse);
   rpc GetNextInChain(GetNextInChainRequest) returns (GetReplicaResponse);
   rpc TransferToNewTailDone(TailUpdated) returns (Empty);
+  rpc AddServer(AddServerRequest) returns (AddServerResponse);
 }
