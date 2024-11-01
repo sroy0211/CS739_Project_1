@@ -55,6 +55,7 @@ class KeyValueStore:
             result = cursor.fetchone()
             if result:
                 return result[0], True
+            logging.info(f"Key '{key}' not found in server {self.port}.")
             return None, False
         except sqlite3.Error as e:
             logging.error(f"Error fetching key '{key}': {e}")
@@ -254,7 +255,6 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             return kvstore_pb2.PutResponse(success=False)
         except grpc.RpcError as e:
             logging.error(f"Server {self.port}  error forwarding Put request for key {key}: {e}")
-            # Handle retries or other logic
             return kvstore_pb2.PutResponse(success=False)
 
 
@@ -266,6 +266,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
                     response = self.next_stub.Put(kvstore_pb2.PutRequest(key=key, value=value, is_forward=True))
                     if response.success:
                         logging.info(f"Server {self.port} forwarded KV pair '{key}:{value}' to next node {self.next_port} in chain.")
+                        break
                 except grpc.RpcError as e:
                     logging.error(f"Error forwarding key '{key}' to next node {self.next_port}: {e}. Remaining retries: {self.retries - i}")
                     time.sleep(self.retry_interval)

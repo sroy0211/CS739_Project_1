@@ -20,8 +20,9 @@ logging.getLogger('replica_server').setLevel(logging.ERROR)
 def start_master_and_replicas(num_replicas=3):
     """Starts the master and replica servers."""
     # Start the master server
-    master_process = subprocess.Popen(["python3", "server.py", "-n", str(num_replicas)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    time.sleep(5)  # Wait for the master and replicas to start
+    master_process = subprocess.Popen(["python3", "server.py", "-n", str(num_replicas)])
+    time.sleep(2)  # Wait for the master and replicas to start
+    logging.info("Master and replicas started.")
 
     # Read the configuration to get replica ports
     with open('server_config.json', 'r') as f:
@@ -37,7 +38,7 @@ def stop_master_and_replicas(master_process):
     master_process.wait()
     print("Master and replicas terminated.")
 
-def measure_throughput_latency(client, num_operations, workload_type='normal', write_ratio=0.5, replica_ports=None):
+def measure_throughput_latency(client: KV739Client, num_operations, workload_type='normal', write_ratio=0.5, replica_ports=None):
     """
     Measures throughput, latency, and CPU utilization under different workloads.
     workload_type: 'normal' or 'hot_cold'
@@ -72,9 +73,7 @@ def measure_throughput_latency(client, num_operations, workload_type='normal', w
             client.kv739_put(key, value)
         else:
             client.kv739_get(key)
-        op_end = time.time()
-
-        latencies.append(op_end - op_start)
+        latencies.append(time.time() - op_start)
     end_time = time.time()
 
     # Stop CPU monitoring
@@ -200,12 +199,12 @@ def availability_test(client, replica_ports):
 
 def main():
     # Start the master and replicas
+    print(os.getcwd())
     num_replicas = 100
     master_process, replica_ports = start_master_and_replicas(num_replicas=num_replicas)
-    time.sleep(5)  # Wait for servers to be fully operational
 
     # Initialize the client
-    client = KV739Client(verbose=True)
+    client = KV739Client(verbose=True, use_cache=True)
     client.kv739_init('server_config.json')
 
     results = {}
