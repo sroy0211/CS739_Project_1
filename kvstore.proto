@@ -145,13 +145,13 @@ message GetNextInChainRequest{
   string hostname = 2; // hostname of the current node
 }
 
-message AddServerRequest{
+message StartServerRequest{
   int32 port = 1;
   string hostname = 2;
   bool new = 3;
 }
 
-message AddServerResponse{
+message StartServerResponse{
   bool success = 1;
 }
 
@@ -161,5 +161,5 @@ service MasterNode {
   rpc SendHeartBeat(SendHeartBeatRequest) returns (SendHeartBeatResponse);
   rpc GetNextInChain(GetNextInChainRequest) returns (GetReplicaResponse);
   rpc TransferToNewTailDone(TailUpdated) returns (Empty);
-  rpc AddServer(AddServerRequest) returns (AddServerResponse);
+  rpc StartServer(StartServerRequest) returns (StartServerResponse);
 }

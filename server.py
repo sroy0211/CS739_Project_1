@@ -390,16 +390,16 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
         finally:
             return kvstore_pb2.SendHeartBeatResponse(is_alive=True)
         
-    def AddServer(self, request, context):
+    def StartServer(self, request, context):
         """Add a new server to the chain."""
         try:
             new_port = scan_ports(1)[0]
             self.master_node.add_server(new_port)
             logging.info(f"New server spawned on port {new_port}.")
-            return kvstore_pb2.AddServerResponse(success=True)
+            return kvstore_pb2.StartServerResponse(success=True)
         except Exception as e:
-            logging.error(f"Master error in AddServer: {e}")
-            return kvstore_pb2.AddServerResponse(success=False)
+            logging.error(f"Master error in StartServer: {e}")
+            return kvstore_pb2.StartServerResponse(success=False)
             
     
     def TransferToNewTailDone(self, request, context):

@@ -322,7 +322,7 @@ class KV739Client:
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
         try:
-            res = self.master_stub.AddServer(kvstore_pb2.AddServerRequest(new=new, ports=server_port, hostname=host))
+            res = self.master_stub.StartServer(kvstore_pb2.StartServerRequest(new=new, ports=server_port, hostname=host))
             if res.success:
                 logging.info(f"Successfully started new server at port: {server_port}")
                 return 0
