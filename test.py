@@ -19,7 +19,7 @@ logging.getLogger('replica_server').setLevel(logging.ERROR)
 def start_master_and_replicas(num_replicas=3):
     """Starts the master and replica servers."""
     master_process = subprocess.Popen(["python3", "server.py", "-n", str(num_replicas)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    time.sleep(5)  # Wait for the master and replicas to start
+    time.sleep(1)  # Wait for the master and replicas to start
 
     # Read the configuration to get replica ports
     with open('server_config.json', 'r') as f:
@@ -143,7 +143,7 @@ def simulate_failures(client: KV739Client, replica_ports):
     """
     head_port = replica_ports[0]
     client.kv739_die('head', clean=0, server_ports=[head_port])
-    time.sleep(5)  # Wait for the system to handle the failure
+    time.sleep(0.6)  # Wait for the system to handle the failure
 
     test_key = 'failure_test_key'
     client.kv739_put(test_key, 'value_after_head_failure')
@@ -152,10 +152,11 @@ def simulate_failures(client: KV739Client, replica_ports):
         return False
     else:
         return True
+    
     if len(replica_ports) > 2:
         middle_port = replica_ports[1]
         client.kv739_die('replica', clean=0, server_ports=[middle_port])
-        time.sleep(5)
+        time.sleep(0.6)
         client.kv739_put(test_key, 'value_after_middle_failure')
         value = client.kv739_get(test_key)[1]
         if value != 'value_after_middle_failure':
@@ -163,7 +164,7 @@ def simulate_failures(client: KV739Client, replica_ports):
 
     tail_port = replica_ports[-1]
     client.kv739_die('tail', clean=0, server_ports=[tail_port])
-    time.sleep(5)
+    time.sleep(0.6)
     client.kv739_put(test_key, 'value_after_tail_failure')
     value = client.kv739_get(test_key)[1]
 
@@ -181,7 +182,7 @@ def availability_test(client, replica_ports):
     for i in range(total_instances):
         port_to_kill = replica_ports[i]
         client.kv739_die('replica', clean=1, server_ports=[port_to_kill])
-        time.sleep(5)
+        time.sleep(0.6)
 
         live_instances = total_instances - (i + 1)
         if live_instances < min_chain_len:
@@ -199,12 +200,11 @@ def availability_test(client, replica_ports):
 
 def main():
     # Start the master and replicas
-    num_replicas = 16
+    num_replicas = 100
     master_process, replica_ports = start_master_and_replicas(num_replicas=num_replicas)
-    time.sleep(5)  # Wait for servers to be fully operational
 
     # Initialize the client
-    client = KV739Client(verbose=True)
+    client = KV739Client(verbose=True, use_cache=True)
     client.kv739_init('server_config.json')
 
     results = {}
@@ -216,8 +216,6 @@ def main():
         'throughput': throughput_normal,
         'latency': latency_normal,
     }
-    print("\nNormal Workload Results:")
-    print(f"Throughput: {throughput_normal:.2f} ops/sec, Latency: {latency_normal:.4f} sec")
     print_cpu_usage(cpu_normal)
 
     # Throughput and latency measurements under hot/cold workload
@@ -227,9 +225,6 @@ def main():
         'throughput': throughput_hot_cold,
         'latency': latency_hot_cold,
     }
-    print("\nHot/Cold Workload Results:")
-    #print(f"Throughput: {throughput_hot_cold:.2f} ops/sec, Latency: {latency_hot_c
-    print(f"Throughput: {throughput_hot_cold:.2f} ops/sec, Latency: {latency_hot_cold:.4f} sec")
     print_cpu_usage(cpu_hot_cold)
 
     # Write-heavy workload
@@ -239,8 +234,6 @@ def main():
         'throughput': throughput_write_heavy,
         'latency': latency_write_heavy,
     }
-    print("\nWrite-Heavy Workload Results:")
-    print(f"Throughput: {throughput_write_heavy:.2f} ops/sec, Latency: {latency_write_heavy:.4f} sec")
     print_cpu_usage(cpu_write_heavy)
 
     # Consistency tests
@@ -259,6 +252,15 @@ def main():
     # Cleanup
     client.kv739_shutdown()
     stop_master_and_replicas(master_process)
-
+    
+    # Print throughput and latency results
+    print("\nNormal Workload Results:")
+    print(f"Throughput: {throughput_normal:.2f} ops/sec, Latency: {latency_normal:.4f} sec")
+    print("\nHot/Cold Workload Results:")
+    #print(f"Throughput: {throughput_hot_cold:.2f} ops/sec, Latency: {latency_hot_c
+    print(f"Throughput: {throughput_hot_cold:.2f} ops/sec, Latency: {latency_hot_cold:.4f} sec")
+    print("\nWrite-Heavy Workload Results:")
+    print(f"Throughput: {throughput_write_heavy:.2f} ops/sec, Latency: {latency_write_heavy:.4f} sec")
+    
 if __name__ == '__main__':
     main()
