@@ -108,7 +108,7 @@ class MasterNode:
             with self.lock:
                 del self.heartbeats[port]
                 self.num_live_replicas -= 1
-            self.remove_server(port)
+            # self.remove_server(port)
             self.replace_server(port)
         else:
             with self.lock:
@@ -146,16 +146,10 @@ class MasterNode:
             try:
                 current_time = time.time()
                 servers_to_replace = []
-                # head_down = False
-                # tail_down = False
                 for port, last_hb_time in self.heartbeats.items():
                     # logging.info(f"Checking heartbeat for port {port}. num_live_replicas: {self.num_live_replicas}")
                     if current_time - last_hb_time > self.timeout:
                         logging.warning(f"Found that server on port {port} has no heartbeat. ")
-                        # if port == self.head_port:
-                        #     head_down = True
-                        # elif port == self.tail_port:
-                        #     tail_down = True
                         self.num_live_replicas -= 1
                         
                         # if self.num_live_replicas < self.min_chain_len:
@@ -166,9 +160,6 @@ class MasterNode:
                             logging.info(f"Server on port {port} replaced.")
                         except Exception as e:
                             logging.error(f"Error in replacing server: {e}")
-                        
-                        # else:
-                        #     ports_to_remove.append(port)
                 for port in servers_to_replace:
                     self.replace_server(port)
                     
@@ -223,9 +214,8 @@ class MasterNode:
                 logging.error(f"Forwarding to new tail {self.tail_port} times out. Dropping it.")
                 self.remove_server(self.tail_port)
                 self.replace_in_progress = False
+                
         with self.lock:
-
-                    
             self.replace_in_progress = True
             del self.child_ports[self.child_order[port]]
             for i in range(self.child_order[port], len(self.child_ports)):
@@ -238,13 +228,11 @@ class MasterNode:
                 self.head_port = self.child_ports[0]
                 self.promote_to_head(self.head_port)
             
-        
         command.append(f"--prev_port={self.tail_port}") # Temp tail until the new one is up
         logging.info(f"Appended new server {self.tail_port} to tail.")
         self.servers_procs[port] = subprocess.Popen(command)  # Start the server as a subprocess
         self.num_live_replicas += 1
         self.heartbeats[port] = time.time()
-        
         
     def promote_to_head(self, new_head_port, retries=3):
         """Notify the new head to claim head status."""
@@ -257,7 +245,6 @@ class MasterNode:
                 return
             except Exception as e:
                 logging.error(f"Error in promoting server {new_head_port} to head: {e}")
-                
         logging.error(f"Failed to update head after {retries} retries.")
             
             
@@ -361,10 +348,12 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
             logging.error(f"Port {port} not found in the chain.")
             return kvstore_pb2.GetReplicaResponse(port=None, hostname=None)
         if port == self.master_node.tail_port:
-            logging.info(f"Tail node can't reach next in chain.")
+            logging.info(f"Tail node {port} tries to reach next in chain, which shouldn't happen...")
             return kvstore_pb2.GetReplicaResponse(port=None, hostname=None)
         
         next_port = self.master_node.child_ports[self.master_node.child_order[port] + 1]
+        # breakpoint()
+        logging.info(f"Sending next in chain for port {port}: {next_port}.")
         hostname = socket.gethostname()
         return kvstore_pb2.GetReplicaResponse(port=next_port, hostname=hostname)
     

@@ -131,7 +131,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         
         # Init comm along the chain and to the master
         self.master_stub = kvstore_pb2_grpc.MasterNodeStub(grpc.insecure_channel(f'localhost:{master_port}'))
-        assert prev_port or next_port, "Must be either head, tail or middle node"
+        assert prev_port is not None or next_port is not None, "Must be either head, tail or middle node"
         self.prev_port = prev_port
         self.next_port = next_port
         self.is_tail = next_port is None
@@ -149,10 +149,10 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         self.heartbeat_thread.start()
     
     def notify_tail(self):
-        logging.info(f"Tail server {self.port} notifying temp tail {self.prev_port} that it's up.")
         prev_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.prev_port}'))  
         try:
             prev_stub.TransferToNewTail(kvstore_pb2.TransferToNewTailRequest(new_tail_port=self.port))
+            logging.info(f"Tail server {self.port} notified temp tail {self.prev_port} that it's up.")
         except grpc.RpcError as e:
             logging.error(f"New tail on port {self.port} fail to notify old tail {self.prev_port}  {e}")
 
@@ -165,11 +165,12 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         self.next_port = request.new_tail_port 
         try:
             self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
-            # Spawn another thread to forward all KV pairs to the new tail. Once done, return success.
+            # Spawn another thread to forward all KV pairs to the new tail.
             # threading.Thread(target=self.ForwardAll,).start()
-            # NOTE: seems two-way connection inside one rpc call doesn't work
-            # context.add_callback(threading.Thread(target=self.ForwardAll,).start)
-            self.ForwardAll()
+            # NOTE: seems two-way connection inside one RPC call doesn't work, 
+            # i.e. you can't use launch another RPC the calls back the caller before TransferToNewTail returns.
+            # so we must use a callback. 
+            context.add_callback(threading.Thread(target=self.ForwardAll,).start)
         
             logging.info(f"Server {self.port} committed data to new tail {self.next_port}.")
             return kvstore_pb2.TransferToNewTailResponse(success=True)
@@ -266,7 +267,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
                     if response.success:
                         logging.info(f"Server {self.port} forwarded KV pair '{key}:{value}' to next node {self.next_port} in chain.")
                 except grpc.RpcError as e:
-                    logging.error(f"Error forwarding key '{key}' to next node {self.next_port}: {e}. Remaining retries: {i}")
+                    logging.error(f"Error forwarding key '{key}' to next node {self.next_port}: {e}. Remaining retries: {self.retries - i}")
                     time.sleep(self.retry_interval)
                     next = self.master_stub.GetNextInChain(kvstore_pb2.GetNextInChainRequest(port=self.port, hostname=socket.gethostname()))
                     logging.info(f"Server {self.port} updated next node to {next.port} to forward to.")
@@ -280,7 +281,6 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         Forward all key-value pairs to the new tail node in the chain.
         Upon completion, relinquish the tail status.
         """
-        
         try:
             assert self.next_stub, "Next stub not initialized."
             conn = self.store.get_new_connection()
@@ -300,10 +300,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             self.is_tail = False 
             logging.info(f"Server {self.port} telling master that it's transferred tail status to node {self.next_port}.")
             self.master_stub.TransferToNewTailDone(kvstore_pb2.TailUpdated(new_tail_port=self.next_port))
-            
-
         
-                        
     def stop_server(self, ):
         """Schedule the server to stop after a short delay to allow responding to client."""
         self.server.stop(0)  # Graceful shutdown
