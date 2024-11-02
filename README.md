@@ -1,4 +1,4 @@
-# CS739_Project_2 : Scalable KV Store
+# CS739_Project_3 : Variable Membership KV Store
 
 This project implements a durable key-value store with client and server components, providing PUT and GET operations with durability guarantees. The system supports multiple clients, ensures data persistence across crashes, and uses a chain replication approach to handle node failures efficiently.
 
