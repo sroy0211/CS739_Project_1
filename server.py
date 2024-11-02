@@ -427,7 +427,8 @@ def serve(args, ports):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
     kvstore_pb2_grpc.add_MasterNodeServicer_to_server(MasterServicer(server, master_node), server)
 
-    server.add_insecure_port(f'[::]:{master_port}')
+    server.add_insecure_port(f'[::]:{master_port}') # ipv6
+    server.add_insecure_port(f'0.0.0.0:{master_port}') # ipv4
     server.start()
     logging.info(f"Master started on port {master_port}. Waiting for requests...")
     try:

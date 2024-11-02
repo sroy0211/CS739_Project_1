@@ -87,13 +87,13 @@ class KV739Client:
             response = self.master_stub.GetTail(kvstore_pb2.GetTailRequest(replace=replace))
             host, port = response.hostname, response.port
             self.tail_port = port
-            logging.info(f"Retrieved tail address: {host}:{port}")
+            logging.info(f"Retrieved tail address: localhost:{port}")
             
             # Check if tail_stub is already initialized; if not, create it
             if self.tail_stub is None or self.tail_port != port:
-                tail_channel = grpc.insecure_channel(f'{host}:{port}')
+                tail_channel = grpc.insecure_channel(f'localhost:{port}')
                 self.tail_stub = kvstore_pb2_grpc.KVStoreStub(tail_channel)
-                logging.info(f"Initialized tail stub for: {host}:{port}")
+                logging.info(f"Initialized tail stub for: localhost:{port}")
                 
             return self.tail_stub
 
@@ -110,13 +110,13 @@ class KV739Client:
             response = self.master_stub.GetHead(kvstore_pb2.GetHeadRequest(replace=replace))
             host, port = response.hostname, response.port
             self.head_port = port
-            logging.info(f"Retrieved head address: {host}:{port}")
+            logging.info(f"Retrieved head address: localhost:{port}")
 
             # Check if head_stub is already initialized; if not, create it
             if self.head_stub is None or self.head_port != port:
-                head_channel = grpc.insecure_channel(f'{host}:{port}')
+                head_channel = grpc.insecure_channel(f'localhost:{port}')
                 self.head_stub = kvstore_pb2_grpc.KVStoreStub(head_channel)
-                logging.info(f"Initialized head stub for: {host}:{port}")
+                logging.info(f"Initialized head stub for: localhost:{port}")
 
             return self.head_stub
 
@@ -134,9 +134,9 @@ class KV739Client:
             
             # Check if middle_stub is already initialized; if not, create it
             if self.middle_stub is None:
-                middle_channel = grpc.insecure_channel(f'{host}:{port}')
+                middle_channel = grpc.insecure_channel(f'localhost:{port}')
                 self.middle_stub = kvstore_pb2_grpc.KVStoreStub(middle_channel)
-                logging.info(f"Initialized middle stub for: {host}:{port}")
+                logging.info(f"Initialized middle stub for: localhost:{port}")
                 
             return self.middle_stub
 
@@ -145,7 +145,7 @@ class KV739Client:
 
         return None
 
-    def kv739_get(self, key, timeout=5, retries=3, debug_port=None):
+    def kv739_get(self, key, timeout=2, retries=3, debug_port=None):
         """Fetches a key's value from the tail server."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
@@ -156,7 +156,7 @@ class KV739Client:
 
         try:
             if debug_port is not None:
-                temp_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'{self.host}:{debug_port}'))
+                temp_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{debug_port}'))
                 response = temp_stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
             else:
                 # Make a Get request to the tail server
@@ -193,7 +193,7 @@ class KV739Client:
             return -1, ''
 
 
-    def kv739_put(self, key, value, timeout=5, retries=4):
+    def kv739_put(self, key, value, timeout=2, retries=4):
         """Performs a PUT operation using the head server."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
@@ -219,7 +219,7 @@ class KV739Client:
                 return 1, ''  # Return 1 on success without old value
 
         except grpc.RpcError as e:
-            logging.error(f"PUT operation failed: {e}")
+            logging.error(f"PUT operation failed for {key}:{value}: {e}")
             if retries > 0:
                 self._get_head_stub() # Reset head stub for next attempt
                 logging.info(f"Retrying... attempts left: {retries}")

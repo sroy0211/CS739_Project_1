@@ -66,6 +66,8 @@ class KeyValueStore:
         try:
             with self.conn:
                 if found:
+                    if value == old_value:
+                        return old_value, found
                     self.conn.execute("UPDATE kvstore SET value=? WHERE key=?", (value, key))
                 else:
                     self.conn.execute("INSERT INTO kvstore (key, value) VALUES (?, ?)", (key, value))
@@ -274,7 +276,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
                     logging.info(f"Server {self.port} updated next node to {next.port} to forward to.")
                     self.next_port = next.port
                     hostname = next.hostname
-                    self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'{hostname}:{self.next_port}'))
+                    self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
             
     def ForwardAll(self,):
         """
@@ -374,7 +376,8 @@ def serve(args):
                                     )
     kvstore_pb2_grpc.add_KVStoreServicer_to_server(servicer, server)
 
-    server.add_insecure_port(f'[::]:{port}')
+    server.add_insecure_port(f'[::]:{port}') # ipv6
+    server.add_insecure_port(f'0.0.0.0:{port}') # ipv4
     server.start()
     if servicer.is_tail:
         logging.info(f"Tail node started on port {port}. prev_port: {servicer.prev_port}")

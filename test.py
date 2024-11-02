@@ -19,7 +19,7 @@ logging.getLogger('replica_server').setLevel(logging.ERROR)
 def start_master_and_replicas(num_replicas=3):
     """Starts the master and replica servers."""
     master_process = subprocess.Popen(["python3", "server.py", "-n", str(num_replicas)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    time.sleep(1)  # Wait for the master and replicas to start
+    time.sleep(3)  # Wait for the master and replicas to start
 
     # Read the configuration to get replica ports
     with open('server_config.json', 'r') as f:
@@ -198,7 +198,7 @@ def availability_test(client, replica_ports):
 
     return live_instances
 
-def main():
+def main(args):
     # Start the master and replicas
     num_replicas = 100
     master_process, replica_ports = start_master_and_replicas(num_replicas=num_replicas)
@@ -216,7 +216,8 @@ def main():
         'throughput': throughput_normal,
         'latency': latency_normal,
     }
-    print_cpu_usage(cpu_normal)
+    if args.print_cpu:
+        print_cpu_usage(cpu_normal)
 
     # Throughput and latency measurements under hot/cold workload
     throughput_hot_cold, latency_hot_cold, cpu_hot_cold = measure_throughput_latency(
@@ -225,7 +226,8 @@ def main():
         'throughput': throughput_hot_cold,
         'latency': latency_hot_cold,
     }
-    print_cpu_usage(cpu_hot_cold)
+    if args.print_cpu:
+        print_cpu_usage(cpu_hot_cold)
 
     # Write-heavy workload
     throughput_write_heavy, latency_write_heavy, cpu_write_heavy = measure_throughput_latency(
@@ -234,7 +236,8 @@ def main():
         'throughput': throughput_write_heavy,
         'latency': latency_write_heavy,
     }
-    print_cpu_usage(cpu_write_heavy)
+    if args.print_cpu:
+        print_cpu_usage(cpu_write_heavy)
 
     # Consistency tests
     results['consistency_test'] = consistency_test(client)
@@ -263,4 +266,7 @@ def main():
     print(f"Throughput: {throughput_write_heavy:.2f} ops/sec, Latency: {latency_write_heavy:.4f} sec")
     
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Run tests on the KV739 service.')
+    parser.add_argument("--print_cpu", action='store_true', help='Print CPU usage per replica')
+    args = parser.parse_args()
+    main(args)
