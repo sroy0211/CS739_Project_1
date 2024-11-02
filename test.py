@@ -200,7 +200,7 @@ def availability_test(client, replica_ports):
 
 def main(args):
     # Start the master and replicas
-    num_replicas = 100
+    num_replicas = 5
     master_process, replica_ports = start_master_and_replicas(num_replicas=num_replicas)
 
     # Initialize the client

@@ -145,7 +145,7 @@ class KV739Client:
 
         return None
 
-    def kv739_get(self, key, timeout=2, retries=3, debug_port=None):
+    def kv739_get(self, key, timeout=1, retries=2, debug_port=None):
         """Fetches a key's value from the tail server."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
@@ -193,7 +193,7 @@ class KV739Client:
             return -1, ''
 
 
-    def kv739_put(self, key, value, timeout=2, retries=4):
+    def kv739_put(self, key, value, timeout=1, retries=2):
         """Performs a PUT operation using the head server."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")

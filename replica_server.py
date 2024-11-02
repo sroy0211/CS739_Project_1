@@ -10,6 +10,7 @@ import time
 import threading
 from typing import Iterable, Tuple
 import socket
+from functools import partial
 
 # Set up logging to file
 logging.basicConfig(
@@ -240,8 +241,9 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             if self.is_tail:
                 logging.info(f"Tail server {self.port} committed {key}:{value} locally. No need to forward.")
             else:
-                # Forward to next in chain
-                self.ForwardToNext(key, value)
+                # Forward to next in chain. NOTE: Do NOT wait until tail replies. 
+                context.add_callback(partial(self.ForwardToNext, key, value))
+                # self.ForwardToNext(key, value)
             
             # Construct the response
             response = kvstore_pb2.PutResponse(
