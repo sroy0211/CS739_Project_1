@@ -180,7 +180,7 @@ class KV739Client:
         
         except grpc.RpcError as e:
             logging.error(f"GET operation failed: {e}")
-            self._get_tail_stub(replace=True)  # Tail server crashed
+            self._get_tail_stub(replace=False)  # Tail server crashed
             if self.use_cache:
                 self.cache.clear()  # Clear the cache on error
             if retries > 0:
@@ -197,6 +197,9 @@ class KV739Client:
         """Performs a PUT operation using the head server."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
+        if retries < 0:
+            logging.error("PUT operation failed after multiple retries.")
+            return -3, ''
         
         try:
             response = self.head_stub.Put(kvstore_pb2.PutRequest(key=key, value=value), timeout=timeout)

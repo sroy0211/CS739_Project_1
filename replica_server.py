@@ -55,7 +55,7 @@ class KeyValueStore:
             result = cursor.fetchone()
             if result:
                 return result[0], True
-            logging.info(f"Key '{key}' not found in server {self.port}.")
+            # logging.info(f"Key '{key}' not found in server {self.port}.")
             return None, False
         except sqlite3.Error as e:
             logging.error(f"Error fetching key '{key}': {e}")
