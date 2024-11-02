@@ -196,6 +196,9 @@ class KV739Client:
         """Performs a PUT operation using the head server."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
+        if retries < 0:
+            logging.error("Max retries exceeded; put operation failed.")    
+            return -1, ''
         
         try:
             response = self.head_stub.Put(kvstore_pb2.PutRequest(key=key, value=value), timeout=timeout)
@@ -216,13 +219,9 @@ class KV739Client:
 
         except grpc.RpcError as e:
             logging.error(f"PUT operation failed: {e}")
-            
-            if retries > 0:
-                self._get_head_stub(replace=True) # Reset head stub for next attempt
-                logging.info(f"Retrying... attempts left: {retries}")
-                return self.kv739_put(key, value, timeout, retries - 1)  # Retry the operation
-
-            logging.error("Max retries exceeded; operation failed.")
+            self._get_head_stub(replace=True) # Reset head stub for next attempt
+            logging.info(f"Retrying... attempts left: {retries}")
+            return self.kv739_put(key, value, timeout, retries - 1)  # Retry the operation
             return -2, ''  # Return -2 on communication failure
 
         except Exception as e:
