@@ -145,7 +145,7 @@ class KV739Client:
 
         return None
 
-    def kv739_get(self, key, timeout=1, retries=2, debug_port=None):
+    def kv739_get(self, key, timeout=0.8, retries=2, debug_port=None):
         """Fetches a key's value from the tail server."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
@@ -194,7 +194,7 @@ class KV739Client:
             return -1, ''
 
 
-    def kv739_put(self, key, value, timeout=1, retries=2):
+    def kv739_put(self, key, value, timeout=0.8, retries=2):
         """Performs a PUT operation using the head server."""
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
@@ -424,7 +424,7 @@ if __name__ == "__main__":
     parser.add_argument('--new', type=int, choices=[0, 1], help="1 to start a new instance, 0 to recover for the start function.")
     parser.add_argument('--clean', type=int, choices=[0, 1], help='Clean termination (1 for clean, 0 for immediate) for (die and leave) function.')
     parser.add_argument('--config_file', type=str, default="server_config.json", help='Path to config file with server instances')
-    parser.add_argument('--timeout', type=int, default=5, help='Timeout for the GET operation (default: 5 seconds)')
+    parser.add_argument('--timeout', type=int, default=0.8, help='Timeout for the GET operation (default: 0.8 seconds)')
     parser.add_argument('--cache_size', type=int, default=100, help='Maximum size of the cache (default: 100 entries)')
     parser.add_argument('--ttl', type=float, default=0.8, help='Time-to-Live for cache entries in seconds (default: 0.8)')
     parser.add_argument('--use_cache', default=True, action='store_true', help='Enable client-side cache')

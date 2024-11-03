@@ -367,7 +367,7 @@ def serve(args):
     port, master_port = args.port, args.master_port,
     
     store = KeyValueStore(port, crash_db=args.crash_db)
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=5))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=16))
     servicer = KeyValueStoreServicer(store,
                                     server,
                                     master_port,

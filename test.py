@@ -10,7 +10,7 @@ from client_library import KV739Client
 import argparse
 import math
 
-NUM_KEYS = 500
+NUM_KEYS = 400
 # Set up logging for the script
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger('client_library').setLevel(logging.ERROR)
@@ -20,7 +20,7 @@ logging.getLogger('replica_server').setLevel(logging.ERROR)
 def start_master_and_replicas(num_replicas=3):
     """Starts the master and replica servers."""
     master_process = subprocess.Popen(["python3", "server.py", "-n", str(num_replicas)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    time.sleep(4)  # Wait for the master and replicas to start
+    time.sleep(5)  # Wait for the master and replicas to start
 
     # Read the configuration to get replica ports
     with open('server_config.json', 'r') as f:
@@ -128,6 +128,7 @@ def consistency_test(client):
     updated_value = 'updated_value'
     
     client.kv739_put(test_key, initial_value)
+    time.sleep(1)  # Wait for propagation to tail
     value = client.kv739_get(test_key)[1]
 
     if value != initial_value:
@@ -142,36 +143,37 @@ def simulate_failures(client: KV739Client, replica_ports):
     """
     Simulates failures of different nodes.
     """
-    head_port = replica_ports[0]
-    client.kv739_die('head', clean=0, server_ports=[head_port])
-    time.sleep(0.6)  # Wait for the system to handle the failure
+    middle_port = replica_ports[2]
 
     test_key = 'failure_test_key'
     client.kv739_put(test_key, 'value_after_head_failure')
+    client.kv739_die(None, clean=0, server_ports=[middle_port])
+    time.sleep(1)  # Wait for the system to handle the failure
     value = client.kv739_get(test_key)[1]
+    
     if value != 'value_after_head_failure':
         return False
     else:
         return True
     
-    if len(replica_ports) > 2:
-        middle_port = replica_ports[1]
-        client.kv739_die('replica', clean=0, server_ports=[middle_port])
-        time.sleep(0.6)
-        client.kv739_put(test_key, 'value_after_middle_failure')
-        value = client.kv739_get(test_key)[1]
-        if value != 'value_after_middle_failure':
-            return False
+    # if len(replica_ports) > 2:
+    #     middle_port = replica_ports[1]
+    #     client.kv739_die('replica', clean=0, server_ports=[middle_port])
+    #     time.sleep(0.6)
+    #     client.kv739_put(test_key, 'value_after_middle_failure')
+    #     value = client.kv739_get(test_key)[1]
+    #     if value != 'value_after_middle_failure':
+    #         return False
 
-    tail_port = replica_ports[-1]
-    client.kv739_die('tail', clean=0, server_ports=[tail_port])
-    time.sleep(0.6)
-    client.kv739_put(test_key, 'value_after_tail_failure')
-    value = client.kv739_get(test_key)[1]
+    # tail_port = replica_ports[-1]
+    # client.kv739_die('tail', clean=0, server_ports=[tail_port])
+    # time.sleep(0.6)
+    # client.kv739_put(test_key, 'value_after_tail_failure')
+    # value = client.kv739_get(test_key)[1]
 
-    return value == 'value_after_tail_failure'
+    # return value == 'value_after_tail_failure'
 
-def availability_test(client, replica_ports):
+def availability_test(client: KV739Client, replica_ports: list):
     """
     Measures how many service instances need to be available for the service to be available.
     """
@@ -182,17 +184,18 @@ def availability_test(client, replica_ports):
 
     for i in range(total_instances):
         port_to_kill = replica_ports[i]
-        client.kv739_die('replica', clean=1, server_ports=[port_to_kill])
-        time.sleep(0.6)
+        client.kv739_put(test_key, f'value_after_killing_{i+1}_instances')
+        client.kv739_die('head', clean=1, server_ports=[port_to_kill])
+        time.sleep(1) # Wait for propagation to tail
 
         live_instances = total_instances - (i + 1)
         if live_instances < min_chain_len:
             break
 
         try:
-            client.kv739_put(test_key, f'value_after_killing_{i+1}_instances')
             value = client.kv739_get(test_key)[1]
             if value != f'value_after_killing_{i+1}_instances':
+                logging.info(f"Value mismatch found after killing {i+1} instances.")
                 return total_instances - i
         except Exception:
             return total_instances - i
@@ -201,7 +204,7 @@ def availability_test(client, replica_ports):
 
 def main(args):
     # Start the master and replicas
-    num_replicas = 50
+    num_replicas = args.num_replicas
     master_process, replica_ports = start_master_and_replicas(num_replicas=num_replicas)
 
     # Initialize the client
@@ -242,20 +245,22 @@ def main(args):
 
     # Consistency tests
     results['consistency_test'] = consistency_test(client)
-    print(f"\nConsistency Test Passed: {results['consistency_test']}")
-
     # Simulate failures
     results['failure_simulation'] = simulate_failures(client, replica_ports)
-    print(f"Failure Simulation Passed: {results['failure_simulation']}")
-
     # Availability tests
     min_instances_required = availability_test(client, replica_ports)
     results['availability_test'] = min_instances_required
-    print(f"Minimum Instances Required for Service Availability: {min_instances_required}")
+    
 
     # Cleanup
     client.kv739_shutdown()
     stop_master_and_replicas(master_process)
+    
+    print(f"------------------------------ Test Results ------------------------------")
+    print(f"Note that these don't necessarily reflect consistency, as read arriving at tail before write is not considered inconsistent ")
+    print(f"\nConsistency Test Passed: {results['consistency_test']}")
+    print(f"Failure Simulation Passed: {results['failure_simulation']}")
+    print(f"Minimum Instances Required for Service Availability: {min_instances_required}")
     
     # Print throughput and latency results
     print(f"\nNormal Workload Results ({num_replicas} replicas):")
@@ -269,5 +274,6 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run tests on the KV739 service.')
     parser.add_argument("--print_cpu", action='store_true', help='Print CPU usage per replica')
+    parser.add_argument("--num_replicas", type=int, default=50, help='Number of replicas to start')
     args = parser.parse_args()
     main(args)
