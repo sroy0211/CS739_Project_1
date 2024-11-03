@@ -172,6 +172,7 @@ class KV739Client:
             if response.found:
                 if self.use_cache:
                     self.cache.put(key, response.value)  # Cache the value if caching is enabled
+
                 logging.info(f"Successfully retrieved key '{key}' with value '{response.value}' from tail server {self.tail_port}")
                 return 0, response.value  # Return success and the value
             else:
@@ -189,7 +190,7 @@ class KV739Client:
                 return -2, ''  # Return -2 on communication failure
         
         except Exception as e:
-            logging.error(f"Unexpected error: {e} in contacting tail server {self.tail_port}")
+            logging.error(f"Unexpected error: {e} in get request to tail server {self.tail_port}")
             return -1, ''
 
 
@@ -229,6 +230,7 @@ class KV739Client:
             return -2, ''  # Return -2 on communication failure
 
         except Exception as e:
+            
             logging.error(f"Unexpected error: {e} in contacting head server {self.head_port}")
             return -1, ''  # Return -1 on any other internal error
 
