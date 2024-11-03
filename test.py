@@ -273,7 +273,7 @@ def main(args):
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run tests on the KV739 service.')
-    parser.add_argument("--print_cpu", action='store_true', help='Print CPU usage per replica')
-    parser.add_argument("--num_replicas", type=int, default=50, help='Number of replicas to start')
+    parser.add_argument("-c", "--print_cpu", action='store_true', help='Print CPU usage per replica')
+    parser.add_argument("-n", "--num_replicas", type=int, default=50, help='Number of replicas to start')
     args = parser.parse_args()
     main(args)

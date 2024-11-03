@@ -108,7 +108,6 @@ class MasterNode:
             with self.lock:
                 del self.heartbeats[port]
                 self.num_live_replicas -= 1
-            # self.remove_server(port)
             self.replace_server(port)
         else:
             with self.lock:
@@ -238,9 +237,11 @@ class MasterNode:
                 
         with self.lock:
             self.append_to_tail_in_progress = True
-            del self.child_ports[self.child_order[port]]
-            for i in range(self.child_order[port], len(self.child_ports)):
-                self.child_order[self.child_ports[i]] -= 1
+            # Prevent double removal when append times out
+            if port in self.child_ports:
+                del self.child_ports[self.child_order[port]]
+                for i in range(self.child_order[port], len(self.child_ports)):
+                    self.child_order[self.child_ports[i]] -= 1
                 
             self.child_ports.append(port)
             self.child_order[port] = len(self.child_ports) - 1    

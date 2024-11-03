@@ -12,6 +12,16 @@ source venv/bin/activate
 pip install grpcio==1.66.1 protobuf==5.28.2 setuptools==59.6.0 psutil==5.9.0
 
 
+## Testing the System
+
+```bash 
+python3 test.py  
+```
+
+## 🚀Results 
+* Using the 64-core Olvi machine
+![Results](results/results.png)
+
 ## Running the Server
 
 To start the key-value store server, run the following command in the terminal:
@@ -49,10 +59,4 @@ The client also supports simulating server for leaving (clean or unclean). Use t
 
 ```bash
 python3 client.py leave <port_number_for_head_or_tail> --kill_type <head_or_tail> --clean <0_or_1>
-```
-
-## Testing the System
-
-```bash 
-python3 test.py  
 ```
