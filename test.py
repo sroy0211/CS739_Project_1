@@ -10,6 +10,7 @@ from client_library import KV739Client
 import argparse
 import math
 
+NUM_KEYS = 500
 # Set up logging for the script
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger('client_library').setLevel(logging.ERROR)
@@ -40,7 +41,7 @@ def measure_throughput_latency(client, num_operations, workload_type='normal', w
     workload_type: 'normal' or 'hot_cold'
     write_ratio: proportion of write operations (between 0 and 1)
     """
-    keys = [f'key_{i}' for i in range(1000)]
+    keys = [f'key_{i}' for i in range(NUM_KEYS)]
     if workload_type == 'hot_cold':
         hot_keys = keys[:10]  # First 10 keys are hot
         cold_keys = keys[10:]
@@ -200,7 +201,7 @@ def availability_test(client, replica_ports):
 
 def main(args):
     # Start the master and replicas
-    num_replicas = 5
+    num_replicas = 50
     master_process, replica_ports = start_master_and_replicas(num_replicas=num_replicas)
 
     # Initialize the client
@@ -211,7 +212,7 @@ def main(args):
 
     # Throughput and latency measurements under normal workload
     throughput_normal, latency_normal, cpu_normal = measure_throughput_latency(
-        client, num_operations=100, workload_type='normal', write_ratio=0.5, replica_ports=replica_ports)
+        client, num_operations=1000, workload_type='normal', write_ratio=0.5, replica_ports=replica_ports)
     results['normal_workload'] = {
         'throughput': throughput_normal,
         'latency': latency_normal,
@@ -221,7 +222,7 @@ def main(args):
 
     # Throughput and latency measurements under hot/cold workload
     throughput_hot_cold, latency_hot_cold, cpu_hot_cold = measure_throughput_latency(
-        client, num_operations=100, workload_type='hot_cold', write_ratio=0.5, replica_ports=replica_ports)
+        client, num_operations=1000, workload_type='hot_cold', write_ratio=0.5, replica_ports=replica_ports)
     results['hot_cold_workload'] = {
         'throughput': throughput_hot_cold,
         'latency': latency_hot_cold,
@@ -231,7 +232,7 @@ def main(args):
 
     # Write-heavy workload
     throughput_write_heavy, latency_write_heavy, cpu_write_heavy = measure_throughput_latency(
-        client, num_operations=100, workload_type='normal', write_ratio=0.9, replica_ports=replica_ports)
+        client, num_operations=1000, workload_type='normal', write_ratio=0.9, replica_ports=replica_ports)
     results['write_heavy_workload'] = {
         'throughput': throughput_write_heavy,
         'latency': latency_write_heavy,
@@ -257,12 +258,12 @@ def main(args):
     stop_master_and_replicas(master_process)
     
     # Print throughput and latency results
-    print("\nNormal Workload Results:")
+    print(f"\nNormal Workload Results ({num_replicas} replicas):")
     print(f"Throughput: {throughput_normal:.2f} ops/sec, Latency: {latency_normal:.4f} sec")
-    print("\nHot/Cold Workload Results:")
+    print(f"\nHot/Cold Workload Results ({num_replicas} replicas):")
     #print(f"Throughput: {throughput_hot_cold:.2f} ops/sec, Latency: {latency_hot_c
     print(f"Throughput: {throughput_hot_cold:.2f} ops/sec, Latency: {latency_hot_cold:.4f} sec")
-    print("\nWrite-Heavy Workload Results:")
+    print(f"\nWrite-Heavy Workload Results ({num_replicas} replicas):")
     print(f"Throughput: {throughput_write_heavy:.2f} ops/sec, Latency: {latency_write_heavy:.4f} sec")
     
 if __name__ == '__main__':

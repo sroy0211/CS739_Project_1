@@ -13,7 +13,7 @@ from typing import List
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class Cache:
-    def __init__(self, max_size=100, ttl=0.2):
+    def __init__(self, max_size=100, ttl=0.8):
         self.cache = OrderedDict()
         self.max_size = max_size
         self.ttl = ttl
@@ -40,7 +40,7 @@ class Cache:
         self.cache.clear()
 
 class KV739Client:
-    def __init__(self, cache_size=100, ttl=0.2, use_cache=False, verbose=False, retries=4, host='localhost'):
+    def __init__(self, cache_size=100, ttl=0.8, use_cache=False, verbose=False, retries=4, host='localhost'):
         self.channels = []
         self.use_cache = use_cache
         self.cache = Cache(max_size=cache_size, ttl=ttl) if use_cache else None
@@ -426,7 +426,7 @@ if __name__ == "__main__":
     parser.add_argument('--config_file', type=str, default="server_config.json", help='Path to config file with server instances')
     parser.add_argument('--timeout', type=int, default=5, help='Timeout for the GET operation (default: 5 seconds)')
     parser.add_argument('--cache_size', type=int, default=100, help='Maximum size of the cache (default: 100 entries)')
-    parser.add_argument('--ttl', type=float, default=0.5, help='Time-to-Live for cache entries in seconds (default: 0.2)')
+    parser.add_argument('--ttl', type=float, default=0.8, help='Time-to-Live for cache entries in seconds (default: 0.8)')
     parser.add_argument('--use_cache', default=True, action='store_true', help='Enable client-side cache')
     parser.add_argument('--verbose', default=True, type=eval, help='Enable debug logging')
     parser.add_argument('--kill_ports', nargs='+', type=int, help='List of ports to kill')

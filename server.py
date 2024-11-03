@@ -424,7 +424,7 @@ def serve(args, ports):
                              verbose=args.verbose,
                              host=args.host
                             )
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=16))
     kvstore_pb2_grpc.add_MasterNodeServicer_to_server(MasterServicer(server, master_node), server)
 
     server.add_insecure_port(f'[::]:{master_port}') # ipv6
