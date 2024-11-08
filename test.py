@@ -20,7 +20,7 @@ logging.getLogger('replica_server').setLevel(logging.ERROR)
 def start_master_and_replicas(num_replicas=3):
     """Starts the master and replica servers."""
     master_process = subprocess.Popen(["python3", "server.py", "-n", str(num_replicas)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    time.sleep(5)  # Wait for the master and replicas to start
+    time.sleep(6)  # Wait for the master and replicas to start
 
     # Read the configuration to get replica ports
     with open('server_config.json', 'r') as f:

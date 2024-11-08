@@ -3,17 +3,20 @@
 This project implements a durable key-value store with client and server components, providing PUT and GET operations with durability guarantees. The system supports multiple clients, ensures data persistence across crashes, and uses a chain replication approach to handle node failures efficiently.
 
 ## Environment Setup
-There are two ways to set up the environment:
-1. **Create a Python Virtual Environment:**
+**Pick one of the two ways to install the environment:**
+1. Use the Provided Python Virtual Environment:
+```
 python3 -m venv venv
 source venv/bin/activate
+```
+2. Or Install Required Packages:
+`pip install grpcio==1.67.0 protobuf==5.28.2 setuptools==67.8.0 psutil==5.9.5`
 
-2. **Install Required Packages:**
-pip install grpcio==1.67.0 protobuf==5.28.2 setuptools==67.8.0 psutil==5.9.5
-
+**Build protobuf files:**
+`python -m grpc_tools.protoc -I=. --python_out=. --grpc_python_out=. kvstore.proto`
 
 ## Testing the System
-
+* Note: If you spawn 80 servers or more on one machine, you may encounter grpc UNAVAILABLE errors potentially due to CPU resource depletion. 
 ```bash 
 python3 test.py  
 ```

@@ -14,6 +14,7 @@ from typing import Union, List
 import shutil
 import subprocess
 import math
+import os
 from contextlib import nullcontext
 DB_PATH = "./db_files/"
 
@@ -105,9 +106,6 @@ class MasterNode:
         in a "clean" way. """
         if not is_alive:
             logging.warning(f"Server on port {port} notified master that it's down. Attempting replacement...")
-            with self.lock:
-                del self.heartbeats[port]
-                self.num_live_replicas -= 1
             self.replace_server(port)
         else:
             with self.lock:
@@ -157,14 +155,15 @@ class MasterNode:
                         
                         # if self.num_live_replicas < self.min_chain_len:
                             # logging.error(f"Chain length below threshold, recovering back to threshold.")
-                        try:
                             # self.replace_server(port)
-                            servers_to_replace.append(port)
-                            logging.info(f"Server on port {port} replaced.")
-                        except Exception as e:
-                            logging.error(f"Error in replacing server: {e}")
+                        servers_to_replace.append(port)
+
                 for port in servers_to_replace:
-                    self.replace_server(port)
+                    try:
+                        self.replace_server(port)
+                        logging.info(f"Server on port {port} replaced.")
+                    except Exception as e:
+                        logging.error(f"Error in replacing server: {e}")
                     
             except Exception as e:
                 logging.error(f"Error in checking heartbeat: {e}")
@@ -175,16 +174,22 @@ class MasterNode:
         """Remove a server from the chain."""
         ports = [ports] if isinstance(ports, int) else ports
         
-        with self.lock:
+        with self.lock if not self.lock.locked() else nullcontext():
             for port in ports:
-                del self.child_ports[self.child_order[port]]
-                for i in range(self.child_order[port], len(self.child_ports)):
-                    self.child_order[self.child_ports[i]] -= 1
-                    
-                self.child_order.pop(port)
-                self.heartbeats.pop(port)
-                self.server_stubs.pop(port)
-                self.servers_procs[port].kill()
+                if port in self.child_ports:
+                    del self.child_ports[self.child_order[port]]
+                    for i in range(self.child_order[port], len(self.child_ports)):
+                        self.child_order[self.child_ports[i]] -= 1
+                    if port == self.head_port:
+                        self.head_port = self.child_ports[0]
+                        self.promote_to_head(self.head_port)
+                    if port == self.tail_port:
+                        self.tail_port = self.child_ports[-1]
+                        
+                    self.child_order.pop(port)
+                    self.heartbeats.pop(port)
+                    self.server_stubs.pop(port)
+                    self.servers_procs[port].kill()
         logging.info(f"Remove servers on ports: {ports}. Current replicas: {self.child_ports} " +
                      "num_live_replicas: {self.num_live_replicas}, recovery threshold: {self.min_chain_len}")
     
@@ -234,7 +239,7 @@ class MasterNode:
                 logging.error(f"Forwarding to new tail {self.tail_port} times out. Dropping it.")
                 self.remove_server(self.tail_port)
                 self.append_to_tail_in_progress = False
-                
+        
         with self.lock:
             self.append_to_tail_in_progress = True
             # Prevent double removal when append times out
@@ -250,7 +255,7 @@ class MasterNode:
                 self.promote_to_head(self.head_port)
             
         command.append(f"--prev_port={self.tail_port}") # Temp tail until the new one is up
-        logging.info(f"Appended new server {self.tail_port} to tail.")
+        logging.info(f"Spawned new server {self.tail_port} at tail.")
         self.servers_procs[port] = subprocess.Popen(command)  # Start the server as a subprocess
         self.num_live_replicas += 1
         self.heartbeats[port] = time.time()
@@ -269,7 +274,7 @@ class MasterNode:
         logging.error(f"Failed to update head after {retries} retries.")
             
             
-    def update_tail_done(self, new_tail_port):
+    def transfer_tail_done(self, new_tail_port):
         """Replica will send this message when replacement & forwarding is done"""
         with self.lock:
             self.append_to_tail_in_progress = False
@@ -371,7 +376,7 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
             return kvstore_pb2.GetReplicaResponse(port=None, hostname=None)
         if port == self.master_node.tail_port:
             logging.info(f"Tail node {port} tries to reach next in chain, which shouldn't happen...")
-            return kvstore_pb2.GetReplicaResponse(port=None, hostname=None)
+            return kvstore_pb2.GetReplicaResponse(port=None, hostname=None, you_are_tail=True)
         
         next_port = self.master_node.child_ports[self.master_node.child_order[port] + 1]
         # breakpoint()
@@ -406,7 +411,7 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
     def TransferToNewTailDone(self, request, context):
         """Update the tail node's address in the chain."""
         try:
-            self.master_node.update_tail_done(request.new_tail_port)
+            self.master_node.transfer_tail_done(request.new_tail_port)
         except Exception as e:
             logging.error(f"Master error in TransferToNewTailDone tail: {e}")
         finally:
@@ -425,7 +430,7 @@ def serve(args, ports):
                              verbose=args.verbose,
                              host=args.host
                             )
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=16))
+    server = grpc.server(futures.ThreadPoolExecutor())
     kvstore_pb2_grpc.add_MasterNodeServicer_to_server(MasterServicer(server, master_node), server)
 
     server.add_insecure_port(f'[::]:{master_port}') # ipv6

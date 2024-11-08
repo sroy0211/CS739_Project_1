@@ -466,6 +466,11 @@ class MasterNodeStub(object):
                 request_serializer=kvstore__pb2.TailUpdated.SerializeToString,
                 response_deserializer=kvstore__pb2.Empty.FromString,
                 )
+        self.StartServer = channel.unary_unary(
+                '/kvstore.MasterNode/StartServer',
+                request_serializer=kvstore__pb2.StartServerRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.StartServerResponse.FromString,
+                )
 
 
 class MasterNodeServicer(object):
@@ -501,6 +506,12 @@ class MasterNodeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StartServer(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_MasterNodeServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -528,6 +539,11 @@ def add_MasterNodeServicer_to_server(servicer, server):
                     servicer.TransferToNewTailDone,
                     request_deserializer=kvstore__pb2.TailUpdated.FromString,
                     response_serializer=kvstore__pb2.Empty.SerializeToString,
+            ),
+            'StartServer': grpc.unary_unary_rpc_method_handler(
+                    servicer.StartServer,
+                    request_deserializer=kvstore__pb2.StartServerRequest.FromString,
+                    response_serializer=kvstore__pb2.StartServerResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -621,5 +637,22 @@ class MasterNode(object):
         return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/TransferToNewTailDone',
             kvstore__pb2.TailUpdated.SerializeToString,
             kvstore__pb2.Empty.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def StartServer(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/StartServer',
+            kvstore__pb2.StartServerRequest.SerializeToString,
+            kvstore__pb2.StartServerResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

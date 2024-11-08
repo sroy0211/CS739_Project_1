@@ -86,7 +86,6 @@ class KV739Client:
         try:
             response = self.master_stub.GetTail(kvstore_pb2.GetTailRequest(replace=replace))
             host, port = response.hostname, response.port
-            self.tail_port = port
             logging.info(f"Retrieved tail address: localhost:{port}")
             
             # Check if tail_stub is already initialized; if not, create it
@@ -94,7 +93,8 @@ class KV739Client:
                 tail_channel = grpc.insecure_channel(f'localhost:{port}')
                 self.tail_stub = kvstore_pb2_grpc.KVStoreStub(tail_channel)
                 logging.info(f"Initialized tail stub for: localhost:{port}")
-                
+        
+            self.tail_port = port
             return self.tail_stub
 
         except grpc.RpcError as e:
@@ -109,7 +109,6 @@ class KV739Client:
             
             response = self.master_stub.GetHead(kvstore_pb2.GetHeadRequest(replace=replace))
             host, port = response.hostname, response.port
-            self.head_port = port
             logging.info(f"Retrieved head address: localhost:{port}")
 
             # Check if head_stub is already initialized; if not, create it
@@ -117,7 +116,7 @@ class KV739Client:
                 head_channel = grpc.insecure_channel(f'localhost:{port}')
                 self.head_stub = kvstore_pb2_grpc.KVStoreStub(head_channel)
                 logging.info(f"Initialized head stub for: localhost:{port}")
-
+            self.head_port = port
             return self.head_stub
 
         except grpc.RpcError as e:
@@ -162,10 +161,12 @@ class KV739Client:
                 # Make a Get request to the tail server
                 response = self.tail_stub.Get(kvstore_pb2.GetRequest(key=key), timeout=timeout)
 
-            # if not success, reach master for tail
-            if not response.success and retries > 0:
-                logging.info(f"Server {self.tail_port} rejected the request. Maybe it's not the tail? Remaining retries: {retries}")
+            if response.rejected:
+                logging.info(f"Server {self.tail_port} rejected the request. Maybe it's not the tail? Reaching master for new tail.")
                 self._get_tail_stub()
+                return self.kv739_get(key, timeout, retries - 1)
+            elif not response.success and retries > 0:
+                logging.info(f"Server {self.tail_port} failed to GET (e.g. database/grpc/logic err). Remaining retries: {retries}")
                 return self.kv739_get(key, timeout, retries - 1)
             
             # Check if the key was found and handle the response
@@ -204,10 +205,13 @@ class KV739Client:
         
         try:
             response = self.head_stub.Put(kvstore_pb2.PutRequest(key=key, value=value), timeout=timeout)
-            # Get new head from master
-            if not response.success:
-                logging.info(f"Head server {self.head_port} rejected the request. Reaching master for new head.")
+            # Handle failure and retry if necessary
+            if response.rejected:
+                logging.info(f"Server {self.head_port} rejected Put request. Reaching master for new head (retries: {retries}).")
                 self._get_head_stub()
+                return self.kv739_put(key, value, timeout, retries - 1)
+            elif not response.success:
+                logging.info(f"Server {self.head_port} failed to PUT (e.g. database/grpc/logic err). Remaining retries: {retries}")
                 return self.kv739_put(key, value, timeout, retries - 1)
             
             # Check if an old value was found and the operation succeeded

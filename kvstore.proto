@@ -14,7 +14,9 @@ message GetResponse {
   string value = 1;
   bool found = 2;
   bool success = 3;
-  uint64 version = 4;  // Added for conflict resolution
+  bool rejected = 4;  // Reject request when not tail
+  uint64 version = 5;  // Added for conflict resolution
+  
 }
 
 message PutRequest {
@@ -28,7 +30,8 @@ message PutResponse {
   string old_value = 1;
   bool old_value_found = 2;
   bool success = 3;
-  uint64 version = 4;  // Return version for the key
+  bool rejected = 4;  // Reject request when not head
+  uint64 version = 5;  // Return version for the key
 }
 
 message DeleteRequest {
@@ -129,7 +132,8 @@ message GetTailRequest{
 message GetReplicaResponse{
   int32 port = 1;
   string hostname = 2; // not needed for p2 running on localhost
-  bool success = 3;
+  bool you_are_tail = 3; 
+  bool success = 4;
 }
 
 message SendHeartBeatRequest{

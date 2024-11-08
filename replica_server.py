@@ -170,8 +170,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         try:
             self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
             # Spawn another thread to forward all KV pairs to the new tail.
-            # threading.Thread(target=self.ForwardAll,).start()
-            # NOTE: seems two-way connection inside one RPC call doesn't work, 
+            # NOTE: seems two-way connection inside one RPC call causes deadlock.
             # i.e. you can't use launch another RPC the calls back the caller before TransferToNewTail returns.
             # so we must use a callback. 
             context.add_callback(threading.Thread(target=self.ForwardAll,).start)
@@ -213,7 +212,7 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
         # Not tail, reject req and ask client to go to master for new tail.
         if not self.is_tail:
             logging.info(f"Server on port {self.port} is not the tail. Rejecting Get request.")
-            return kvstore_pb2.GetResponse(success=False)
+            return kvstore_pb2.GetResponse(success=True, rejected=True)
         
         try:
             value, return_code = self.store.get(request.key)
@@ -223,16 +222,18 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             else:
                 logging.info(f"Server {self.port} get request for key: {request.key} - Not found.")
                 return kvstore_pb2.GetResponse(success=True, found=False)
+            
         except sqlite3.Error as e:
             logging.error(f"Server {self.port} error processing Get request for key {request.key}: {e}")
-            return kvstore_pb2.GetResponse(success=True, found=False)
+            return kvstore_pb2.GetResponse(success=False, found=False)
+        
 
     def Put(self, request, context):
         """Handle 'Put' requests."""
         # Not head, reject req and ask client to go to master for new head.
         if not self.is_head and not request.is_forward:
             logging.info(f"Server on port {self.port} is not the head. Rejecting Put request.")
-            return kvstore_pb2.PutResponse(success=False)
+            return kvstore_pb2.PutResponse(success=True, rejected=True)
         
         try:
             # Perform the Put operation
@@ -274,11 +275,17 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
                 except grpc.RpcError as e:
                     logging.error(f"Error forwarding key '{key}' to next node {self.next_port}: {e}. Remaining retries: {self.retries - i}")
                     time.sleep(self.retry_interval)
-                    next = self.master_stub.GetNextInChain(kvstore_pb2.GetNextInChainRequest(port=self.port, hostname=socket.gethostname()))
-                    logging.info(f"Server {self.port} updated next node to {next.port} to forward to.")
-                    self.next_port = next.port
-                    hostname = next.hostname
-                    self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
+                    response = self.master_stub.GetNextInChain(kvstore_pb2.GetNextInChainRequest(port=self.port, hostname=socket.gethostname()))
+                    if response.you_are_tail:
+                        self.is_tail = True
+                        self.next_port = None
+                        self.next_stub = None
+                        logging.info(f"Server {self.port} notified by master that it's the tail via GetNextInChain.")
+                    else:
+                        logging.info(f"Server {self.port} updated next node to {response.port} to forward to.")
+                        self.next_port = response.port
+                        hostname = response.hostname
+                        self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
             
     def ForwardAll(self,):
         """
@@ -367,7 +374,7 @@ def serve(args):
     port, master_port = args.port, args.master_port,
     
     store = KeyValueStore(port, crash_db=args.crash_db)
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=16))
+    server = grpc.server(futures.ThreadPoolExecutor())
     servicer = KeyValueStoreServicer(store,
                                     server,
                                     master_port,
