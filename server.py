@@ -62,7 +62,7 @@ class MasterNode:
     3. Recording the tail node to forward queries to.
     The master node is assumed to not fail or properly replicate itself.
     """
-    def __init__(self, port, child_ports, num_replicas=10, timeout=2.5, verbose=True, host="localhost"):
+    def __init__(self, port, child_ports, num_replicas, timeout, verbose=True, host="localhost"):
         """
         Args:
             port (int): Port number to run the master node on
@@ -279,6 +279,7 @@ class MasterNode:
         with self.lock:
             self.append_to_tail_in_progress = False
             self.tail_port = new_tail_port   
+            
             logging.info(f"Master updated tail port to {new_tail_port}.")
             self.heartbeats[new_tail_port] = time.time()
         logging.info(f"Tail node resurrected on port {new_tail_port}. List of current replicas: {self.child_ports}")
@@ -452,7 +453,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Start a chain replication server.')
     parser.add_argument("-p", "--port", type=int, default=50000, help="For both master and replica. Port number to start the current server on")
     parser.add_argument("-n", "--num_replicas", type=int, default=10, help="Number of server replicas in chain")
-    parser.add_argument("-t", "--timeout", type=int, default=3, help="Timeout for heartbeat detection. Should be less than cache TTL.")
+    parser.add_argument("-t", "--timeout", type=int, default=3.5, help="Timeout for heartbeat detection. Should be less than cache TTL.")
     parser.add_argument("--crash_db", type=eval, default=True,
                         help="Whether to crash the database in failure simulation, which requires tail data forwarding to recover.")
     parser.add_argument("--verbose", type=eval, default=True, help="Whether to print debug info.")

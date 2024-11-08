@@ -166,6 +166,10 @@ class KeyValueStoreServicer(kvstore_pb2_grpc.KVStoreServicer):
             logging.info(f"Server {self.port} is not the tail. Rejecting update tail request.")
             return kvstore_pb2.TransferToNewTailResponse(success=False)
         
+        if request.new_tail_port is None:
+            logging.info(f"Server {self.port} got invalid new tail port None in TransferToNewTail.")
+            return kvstore_pb2.TransferToNewTailResponse(success=False)
+        
         self.next_port = request.new_tail_port 
         try:
             self.next_stub = kvstore_pb2_grpc.KVStoreStub(grpc.insecure_channel(f'localhost:{self.next_port}'))
