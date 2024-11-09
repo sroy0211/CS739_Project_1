@@ -16,7 +16,7 @@ source venv/bin/activate
 `python -m grpc_tools.protoc -I=. --python_out=. --grpc_python_out=. kvstore.proto`
 
 ## Testing the System
-* Note: If you spawn 80 servers or more on one machine, you may encounter grpc UNAVAILABLE errors potentially due to CPU resource depletion. 
+* Note: If you spawn 80 servers or more on one machine, you may encounter grpc UNAVAILABLE errors potentially due to CPU resource depletion. Rerunning the tests may help.
 ```bash 
 python3 test.py  
 ```

@@ -145,7 +145,15 @@ class KV739Client:
         return None
 
     def kv739_get(self, key, timeout=0.8, retries=2, debug_port=None):
-        """Fetches a key's value from the tail server."""
+        """Fetches a key's value from the tail server.
+            Returns:
+                -1 on failure
+                0 on success
+        """
+        if retries < 0:
+            logging.error("GET operation failed after multiple retries.")
+            return -1, ''
+        
         if not self.initialized:
             raise Exception("Client not initialized. Call kv739_init() first.")
         
@@ -178,17 +186,14 @@ class KV739Client:
                 return 0, response.value  # Return success and the value
             else:
                 logging.info(f"Key '{key}' not found at tail server {self.tail_port}")
-                return 1, ''  # Key not found, return code 1
+                return -1, ''
         
         except grpc.RpcError as e:
             logging.error(f"GET operation failed: {e}")
             self._get_tail_stub(replace=False)  # Tail server crashed
             if self.use_cache:
                 self.cache.clear()  # Clear the cache on error
-            if retries > 0:
-                return self.kv739_get(key, timeout, retries - 1)
-            else:
-                return -2, ''  # Return -2 on communication failure
+            return self.kv739_get(key, timeout, retries - 1)
         
         except Exception as e:
             logging.error(f"Unexpected error: {e} in get request to tail server {self.tail_port}")

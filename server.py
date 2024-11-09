@@ -191,7 +191,7 @@ class MasterNode:
                     self.server_stubs.pop(port)
                     self.servers_procs[port].kill()
         logging.info(f"Remove servers on ports: {ports}. Current replicas: {self.child_ports} " +
-                     "num_live_replicas: {self.num_live_replicas}, recovery threshold: {self.min_chain_len}")
+                     f"num_live_replicas: {self.num_live_replicas}, recovery threshold: {self.min_chain_len}")
     
     def add_server(self, port):
         """Add a new server to the tail of the chain."""
@@ -259,6 +259,7 @@ class MasterNode:
         self.servers_procs[port] = subprocess.Popen(command)  # Start the server as a subprocess
         self.num_live_replicas += 1
         self.heartbeats[port] = time.time()
+     
         
     def promote_to_head(self, new_head_port, retries=3):
         """Notify the new head to claim head status."""
@@ -276,6 +277,10 @@ class MasterNode:
             
     def transfer_tail_done(self, new_tail_port):
         """Replica will send this message when replacement & forwarding is done"""
+        if not new_tail_port is None:
+            logging.info(f"Master refuses to update tail to invalid port {new_tail_port}.")
+            return 
+            
         with self.lock:
             self.append_to_tail_in_progress = False
             self.tail_port = new_tail_port   
@@ -372,15 +377,20 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
     def GetNextInChain(self, request, context):
         """Get the next node in the chain."""
         port = request.port
+        if request.replace:
+            next_port = self.master_node.child_ports[self.master_node.child_order[port] + 1]
+            logging.warning(f"GetNextInChain: child {port} requested replacing next node {next_port}" +
+                            "after serveral irresponsive retries.")
+            self.master_node.replace_server(next_port)
+        
         if port not in self.master_node.child_ports:
-            logging.error(f"Port {port} not found in the chain.")
+            logging.error(f"GetNextInChain: Src server {port} not found in the chain.")
             return kvstore_pb2.GetReplicaResponse(port=None, hostname=None)
         if port == self.master_node.tail_port:
-            logging.info(f"Tail node {port} tries to reach next in chain, which shouldn't happen...")
+            logging.info(f"GetNextInChain: Tail node {port} tries to find the next, which shouldn't happen...")
             return kvstore_pb2.GetReplicaResponse(port=None, hostname=None, you_are_tail=True)
-        
         next_port = self.master_node.child_ports[self.master_node.child_order[port] + 1]
-        # breakpoint()
+
         logging.info(f"Sending next in chain for port {port}: {next_port}.")
         hostname = socket.gethostname()
         return kvstore_pb2.GetReplicaResponse(port=next_port, hostname=hostname)
@@ -409,12 +419,12 @@ class MasterServicer(kvstore_pb2_grpc.MasterNodeServicer):
             return kvstore_pb2.StartServerResponse(success=False)
             
     
-    def TransferToNewTailDone(self, request, context):
+    def TransferTailDone(self, request, context):
         """Update the tail node's address in the chain."""
         try:
             self.master_node.transfer_tail_done(request.new_tail_port)
         except Exception as e:
-            logging.error(f"Master error in TransferToNewTailDone tail: {e}")
+            logging.error(f"Master error in TransferTailDone tail: {e}")
         finally:
             return kvstore_pb2.Empty()
     

@@ -13,7 +13,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rkvstore.proto\x12\x07kvstore\"\x07\n\x05\x45mpty\"\x19\n\nGetRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\"_\n\x0bGetResponse\x12\r\n\x05value\x18\x01 \x01(\t\x12\r\n\x05\x66ound\x18\x02 \x01(\x08\x12\x0f\n\x07success\x18\x03 \x01(\x08\x12\x10\n\x08rejected\x18\x04 \x01(\x08\x12\x0f\n\x07version\x18\x05 \x01(\x04\"M\n\nPutRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\x04\x12\x12\n\nis_forward\x18\x04 \x01(\x08\"m\n\x0bPutResponse\x12\x11\n\told_value\x18\x01 \x01(\t\x12\x17\n\x0fold_value_found\x18\x02 \x01(\x08\x12\x0f\n\x07success\x18\x03 \x01(\x08\x12\x10\n\x08rejected\x18\x04 \x01(\x08\x12\x0f\n\x07version\x18\x05 \x01(\x04\"\x1c\n\rDeleteRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\"!\n\x0e\x44\x65leteResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\x1f\n\x0f\x42\x61tchGetRequest\x12\x0c\n\x04keys\x18\x01 \x03(\t\"\x91\x01\n\x10\x42\x61tchGetResponse\x12\x37\n\x07results\x18\x01 \x03(\x0b\x32&.kvstore.BatchGetResponse.ResultsEntry\x1a\x44\n\x0cResultsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12#\n\x05value\x18\x02 \x01(\x0b\x32\x14.kvstore.GetResponse:\x02\x38\x01\"\x80\x01\n\x0f\x42\x61tchPutRequest\x12;\n\nkey_values\x18\x01 \x03(\x0b\x32\'.kvstore.BatchPutRequest.KeyValuesEntry\x1a\x30\n\x0eKeyValuesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x91\x01\n\x10\x42\x61tchPutResponse\x12\x37\n\x07results\x18\x01 \x03(\x0b\x32&.kvstore.BatchPutResponse.ResultsEntry\x1a\x44\n\x0cResultsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12#\n\x05value\x18\x02 \x01(\x0b\x32\x14.kvstore.PutResponse:\x02\x38\x01\",\n\nDieRequest\x12\r\n\x05\x63lean\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"/\n\x0b\x44ieResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\".\n\x0cLeaveRequest\x12\r\n\x05\x63lean\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"1\n\rLeaveResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"\r\n\x0bPingRequest\" \n\x0cPingResponse\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\"C\n\x18TransferToNewTailRequest\x12\x15\n\rnew_tail_port\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\",\n\x19TransferToNewTailResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\x16\n\x14PromoteToHeadRequest\"(\n\x15PromoteToHeadResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"$\n\x0bTailUpdated\x12\x15\n\rnew_tail_port\x18\x01 \x01(\x05\"!\n\x0eGetHeadRequest\x12\x0f\n\x07replace\x18\x01 \x01(\x08\"!\n\x0eGetTailRequest\x12\x0f\n\x07replace\x18\x01 \x01(\x08\"[\n\x12GetReplicaResponse\x12\x0c\n\x04port\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\x12\x14\n\x0cyou_are_tail\x18\x03 \x01(\x08\x12\x0f\n\x07success\x18\x04 \x01(\x08\"6\n\x14SendHeartBeatRequest\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\x12\x0c\n\x04port\x18\x02 \x01(\x05\")\n\x15SendHeartBeatResponse\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\"7\n\x15GetNextInChainRequest\x12\x0c\n\x04port\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\"A\n\x12StartServerRequest\x12\x0c\n\x04port\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\x12\x0b\n\x03new\x18\x03 \x01(\x08\"&\n\x13StartServerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x32\xe9\x05\n\x07KVStore\x12\x30\n\x03Get\x12\x13.kvstore.GetRequest\x1a\x14.kvstore.GetResponse\x12\x30\n\x03Put\x12\x13.kvstore.PutRequest\x1a\x14.kvstore.PutResponse\x12\x39\n\x06\x44\x65lete\x12\x16.kvstore.DeleteRequest\x1a\x17.kvstore.DeleteResponse\x12?\n\x08\x42\x61tchGet\x12\x18.kvstore.BatchGetRequest\x1a\x19.kvstore.BatchGetResponse\x12?\n\x08\x42\x61tchPut\x12\x18.kvstore.BatchPutRequest\x1a\x19.kvstore.BatchPutResponse\x12\x36\n\tPutToNext\x12\x13.kvstore.PutRequest\x1a\x14.kvstore.PutResponse\x12\x30\n\x03\x44ie\x12\x13.kvstore.DieRequest\x1a\x14.kvstore.DieResponse\x12\x36\n\x05Leave\x12\x15.kvstore.LeaveRequest\x1a\x16.kvstore.LeaveResponse\x12\x33\n\x04Ping\x12\x14.kvstore.PingRequest\x1a\x15.kvstore.PingResponse\x12Z\n\x11TransferToNewTail\x12!.kvstore.TransferToNewTailRequest\x1a\".kvstore.TransferToNewTailResponse\x12N\n\rPromoteToHead\x12\x1d.kvstore.PromoteToHeadRequest\x1a\x1e.kvstore.PromoteToHeadResponse\x12:\n\rForwardToNext\x12\x13.kvstore.PutRequest\x1a\x14.kvstore.PutResponse2\xb6\x03\n\nMasterNode\x12?\n\x07GetHead\x12\x17.kvstore.GetHeadRequest\x1a\x1b.kvstore.GetReplicaResponse\x12?\n\x07GetTail\x12\x17.kvstore.GetTailRequest\x1a\x1b.kvstore.GetReplicaResponse\x12N\n\rSendHeartBeat\x12\x1d.kvstore.SendHeartBeatRequest\x1a\x1e.kvstore.SendHeartBeatResponse\x12M\n\x0eGetNextInChain\x12\x1e.kvstore.GetNextInChainRequest\x1a\x1b.kvstore.GetReplicaResponse\x12=\n\x15TransferToNewTailDone\x12\x14.kvstore.TailUpdated\x1a\x0e.kvstore.Empty\x12H\n\x0bStartServer\x12\x1b.kvstore.StartServerRequest\x1a\x1c.kvstore.StartServerResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rkvstore.proto\x12\x07kvstore\"\x07\n\x05\x45mpty\"\x19\n\nGetRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\"_\n\x0bGetResponse\x12\r\n\x05value\x18\x01 \x01(\t\x12\r\n\x05\x66ound\x18\x02 \x01(\x08\x12\x0f\n\x07success\x18\x03 \x01(\x08\x12\x10\n\x08rejected\x18\x04 \x01(\x08\x12\x0f\n\x07version\x18\x05 \x01(\x04\"M\n\nPutRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t\x12\x0f\n\x07version\x18\x03 \x01(\x04\x12\x12\n\nis_forward\x18\x04 \x01(\x08\"m\n\x0bPutResponse\x12\x11\n\told_value\x18\x01 \x01(\t\x12\x17\n\x0fold_value_found\x18\x02 \x01(\x08\x12\x0f\n\x07success\x18\x03 \x01(\x08\x12\x10\n\x08rejected\x18\x04 \x01(\x08\x12\x0f\n\x07version\x18\x05 \x01(\x04\"\x1c\n\rDeleteRequest\x12\x0b\n\x03key\x18\x01 \x01(\t\"!\n\x0e\x44\x65leteResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\x1f\n\x0f\x42\x61tchGetRequest\x12\x0c\n\x04keys\x18\x01 \x03(\t\"\x91\x01\n\x10\x42\x61tchGetResponse\x12\x37\n\x07results\x18\x01 \x03(\x0b\x32&.kvstore.BatchGetResponse.ResultsEntry\x1a\x44\n\x0cResultsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12#\n\x05value\x18\x02 \x01(\x0b\x32\x14.kvstore.GetResponse:\x02\x38\x01\"\x80\x01\n\x0f\x42\x61tchPutRequest\x12;\n\nkey_values\x18\x01 \x03(\x0b\x32\'.kvstore.BatchPutRequest.KeyValuesEntry\x1a\x30\n\x0eKeyValuesEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x91\x01\n\x10\x42\x61tchPutResponse\x12\x37\n\x07results\x18\x01 \x03(\x0b\x32&.kvstore.BatchPutResponse.ResultsEntry\x1a\x44\n\x0cResultsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12#\n\x05value\x18\x02 \x01(\x0b\x32\x14.kvstore.PutResponse:\x02\x38\x01\",\n\nDieRequest\x12\r\n\x05\x63lean\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"/\n\x0b\x44ieResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\".\n\x0cLeaveRequest\x12\r\n\x05\x63lean\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"1\n\rLeaveResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t\"\r\n\x0bPingRequest\" \n\x0cPingResponse\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\">\n\x13TransferTailRequest\x12\x15\n\rnew_tail_port\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\"\'\n\x14TransferTailResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"\x16\n\x14PromoteToHeadRequest\"(\n\x15PromoteToHeadResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"$\n\x0bTailUpdated\x12\x15\n\rnew_tail_port\x18\x01 \x01(\x05\"!\n\x0eGetHeadRequest\x12\x0f\n\x07replace\x18\x01 \x01(\x08\"!\n\x0eGetTailRequest\x12\x0f\n\x07replace\x18\x01 \x01(\x08\"[\n\x12GetReplicaResponse\x12\x0c\n\x04port\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\x12\x14\n\x0cyou_are_tail\x18\x03 \x01(\x08\x12\x0f\n\x07success\x18\x04 \x01(\x08\"6\n\x14SendHeartBeatRequest\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\x12\x0c\n\x04port\x18\x02 \x01(\x05\")\n\x15SendHeartBeatResponse\x12\x10\n\x08is_alive\x18\x01 \x01(\x08\"H\n\x15GetNextInChainRequest\x12\x0c\n\x04port\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\x12\x0f\n\x07replace\x18\x03 \x01(\x08\"A\n\x12StartServerRequest\x12\x0c\n\x04port\x18\x01 \x01(\x05\x12\x10\n\x08hostname\x18\x02 \x01(\t\x12\x0b\n\x03new\x18\x03 \x01(\x08\"&\n\x13StartServerResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x32\xda\x05\n\x07KVStore\x12\x30\n\x03Get\x12\x13.kvstore.GetRequest\x1a\x14.kvstore.GetResponse\x12\x30\n\x03Put\x12\x13.kvstore.PutRequest\x1a\x14.kvstore.PutResponse\x12\x39\n\x06\x44\x65lete\x12\x16.kvstore.DeleteRequest\x1a\x17.kvstore.DeleteResponse\x12?\n\x08\x42\x61tchGet\x12\x18.kvstore.BatchGetRequest\x1a\x19.kvstore.BatchGetResponse\x12?\n\x08\x42\x61tchPut\x12\x18.kvstore.BatchPutRequest\x1a\x19.kvstore.BatchPutResponse\x12\x36\n\tPutToNext\x12\x13.kvstore.PutRequest\x1a\x14.kvstore.PutResponse\x12\x30\n\x03\x44ie\x12\x13.kvstore.DieRequest\x1a\x14.kvstore.DieResponse\x12\x36\n\x05Leave\x12\x15.kvstore.LeaveRequest\x1a\x16.kvstore.LeaveResponse\x12\x33\n\x04Ping\x12\x14.kvstore.PingRequest\x1a\x15.kvstore.PingResponse\x12K\n\x0cTransferTail\x12\x1c.kvstore.TransferTailRequest\x1a\x1d.kvstore.TransferTailResponse\x12N\n\rPromoteToHead\x12\x1d.kvstore.PromoteToHeadRequest\x1a\x1e.kvstore.PromoteToHeadResponse\x12:\n\rForwardToNext\x12\x13.kvstore.PutRequest\x1a\x14.kvstore.PutResponse2\xb1\x03\n\nMasterNode\x12?\n\x07GetHead\x12\x17.kvstore.GetHeadRequest\x1a\x1b.kvstore.GetReplicaResponse\x12?\n\x07GetTail\x12\x17.kvstore.GetTailRequest\x1a\x1b.kvstore.GetReplicaResponse\x12N\n\rSendHeartBeat\x12\x1d.kvstore.SendHeartBeatRequest\x1a\x1e.kvstore.SendHeartBeatResponse\x12M\n\x0eGetNextInChain\x12\x1e.kvstore.GetNextInChainRequest\x1a\x1b.kvstore.GetReplicaResponse\x12\x38\n\x10TransferTailDone\x12\x14.kvstore.TailUpdated\x1a\x0e.kvstore.Empty\x12H\n\x0bStartServer\x12\x1b.kvstore.StartServerRequest\x1a\x1c.kvstore.StartServerResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -67,34 +67,34 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['_PINGREQUEST']._serialized_end=1081
   _globals['_PINGRESPONSE']._serialized_start=1083
   _globals['_PINGRESPONSE']._serialized_end=1115
-  _globals['_TRANSFERTONEWTAILREQUEST']._serialized_start=1117
-  _globals['_TRANSFERTONEWTAILREQUEST']._serialized_end=1184
-  _globals['_TRANSFERTONEWTAILRESPONSE']._serialized_start=1186
-  _globals['_TRANSFERTONEWTAILRESPONSE']._serialized_end=1230
-  _globals['_PROMOTETOHEADREQUEST']._serialized_start=1232
-  _globals['_PROMOTETOHEADREQUEST']._serialized_end=1254
-  _globals['_PROMOTETOHEADRESPONSE']._serialized_start=1256
-  _globals['_PROMOTETOHEADRESPONSE']._serialized_end=1296
-  _globals['_TAILUPDATED']._serialized_start=1298
-  _globals['_TAILUPDATED']._serialized_end=1334
-  _globals['_GETHEADREQUEST']._serialized_start=1336
-  _globals['_GETHEADREQUEST']._serialized_end=1369
-  _globals['_GETTAILREQUEST']._serialized_start=1371
-  _globals['_GETTAILREQUEST']._serialized_end=1404
-  _globals['_GETREPLICARESPONSE']._serialized_start=1406
-  _globals['_GETREPLICARESPONSE']._serialized_end=1497
-  _globals['_SENDHEARTBEATREQUEST']._serialized_start=1499
-  _globals['_SENDHEARTBEATREQUEST']._serialized_end=1553
-  _globals['_SENDHEARTBEATRESPONSE']._serialized_start=1555
-  _globals['_SENDHEARTBEATRESPONSE']._serialized_end=1596
-  _globals['_GETNEXTINCHAINREQUEST']._serialized_start=1598
-  _globals['_GETNEXTINCHAINREQUEST']._serialized_end=1653
-  _globals['_STARTSERVERREQUEST']._serialized_start=1655
-  _globals['_STARTSERVERREQUEST']._serialized_end=1720
-  _globals['_STARTSERVERRESPONSE']._serialized_start=1722
-  _globals['_STARTSERVERRESPONSE']._serialized_end=1760
-  _globals['_KVSTORE']._serialized_start=1763
-  _globals['_KVSTORE']._serialized_end=2508
-  _globals['_MASTERNODE']._serialized_start=2511
-  _globals['_MASTERNODE']._serialized_end=2949
+  _globals['_TRANSFERTAILREQUEST']._serialized_start=1117
+  _globals['_TRANSFERTAILREQUEST']._serialized_end=1179
+  _globals['_TRANSFERTAILRESPONSE']._serialized_start=1181
+  _globals['_TRANSFERTAILRESPONSE']._serialized_end=1220
+  _globals['_PROMOTETOHEADREQUEST']._serialized_start=1222
+  _globals['_PROMOTETOHEADREQUEST']._serialized_end=1244
+  _globals['_PROMOTETOHEADRESPONSE']._serialized_start=1246
+  _globals['_PROMOTETOHEADRESPONSE']._serialized_end=1286
+  _globals['_TAILUPDATED']._serialized_start=1288
+  _globals['_TAILUPDATED']._serialized_end=1324
+  _globals['_GETHEADREQUEST']._serialized_start=1326
+  _globals['_GETHEADREQUEST']._serialized_end=1359
+  _globals['_GETTAILREQUEST']._serialized_start=1361
+  _globals['_GETTAILREQUEST']._serialized_end=1394
+  _globals['_GETREPLICARESPONSE']._serialized_start=1396
+  _globals['_GETREPLICARESPONSE']._serialized_end=1487
+  _globals['_SENDHEARTBEATREQUEST']._serialized_start=1489
+  _globals['_SENDHEARTBEATREQUEST']._serialized_end=1543
+  _globals['_SENDHEARTBEATRESPONSE']._serialized_start=1545
+  _globals['_SENDHEARTBEATRESPONSE']._serialized_end=1586
+  _globals['_GETNEXTINCHAINREQUEST']._serialized_start=1588
+  _globals['_GETNEXTINCHAINREQUEST']._serialized_end=1660
+  _globals['_STARTSERVERREQUEST']._serialized_start=1662
+  _globals['_STARTSERVERREQUEST']._serialized_end=1727
+  _globals['_STARTSERVERRESPONSE']._serialized_start=1729
+  _globals['_STARTSERVERRESPONSE']._serialized_end=1767
+  _globals['_KVSTORE']._serialized_start=1770
+  _globals['_KVSTORE']._serialized_end=2500
+  _globals['_MASTERNODE']._serialized_start=2503
+  _globals['_MASTERNODE']._serialized_end=2936
 # @@protoc_insertion_point(module_scope)

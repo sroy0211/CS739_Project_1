@@ -88,11 +88,11 @@ message PingResponse {
   bool is_alive = 1; // if the master is alive
 }
 
-message TransferToNewTailRequest {
+message TransferTailRequest {
   int32 new_tail_port = 1; // port of the new tail
   string hostname = 2; // hostname of the new tail
 }
-message TransferToNewTailResponse {
+message TransferTailResponse {
   bool success = 1;
 }
 message PromoteToHeadRequest {
@@ -116,7 +116,7 @@ service KVStore {
   
   // New Ping RPC method
   rpc Ping(PingRequest) returns (PingResponse);
-  rpc TransferToNewTail(TransferToNewTailRequest) returns (TransferToNewTailResponse);
+  rpc TransferTail(TransferTailRequest) returns (TransferTailResponse);
   rpc PromoteToHead(PromoteToHeadRequest) returns (PromoteToHeadResponse);
   rpc ForwardToNext(PutRequest) returns (PutResponse);
 }
@@ -147,6 +147,7 @@ message SendHeartBeatResponse{
 message GetNextInChainRequest{
   int32 port = 1; // port of the current node
   string hostname = 2; // hostname of the current node
+  bool replace = 3;
 }
 
 message StartServerRequest{
@@ -164,6 +165,6 @@ service MasterNode {
   rpc GetTail(GetTailRequest) returns (GetReplicaResponse);
   rpc SendHeartBeat(SendHeartBeatRequest) returns (SendHeartBeatResponse);
   rpc GetNextInChain(GetNextInChainRequest) returns (GetReplicaResponse);
-  rpc TransferToNewTailDone(TailUpdated) returns (Empty);
+  rpc TransferTailDone(TailUpdated) returns (Empty);
   rpc StartServer(StartServerRequest) returns (StartServerResponse);
 }

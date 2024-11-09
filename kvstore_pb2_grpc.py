@@ -59,10 +59,10 @@ class KVStoreStub(object):
                 request_serializer=kvstore__pb2.PingRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.PingResponse.FromString,
                 )
-        self.TransferToNewTail = channel.unary_unary(
-                '/kvstore.KVStore/TransferToNewTail',
-                request_serializer=kvstore__pb2.TransferToNewTailRequest.SerializeToString,
-                response_deserializer=kvstore__pb2.TransferToNewTailResponse.FromString,
+        self.TransferTail = channel.unary_unary(
+                '/kvstore.KVStore/TransferTail',
+                request_serializer=kvstore__pb2.TransferTailRequest.SerializeToString,
+                response_deserializer=kvstore__pb2.TransferTailResponse.FromString,
                 )
         self.PromoteToHead = channel.unary_unary(
                 '/kvstore.KVStore/PromoteToHead',
@@ -136,7 +136,7 @@ class KVStoreServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def TransferToNewTail(self, request, context):
+    def TransferTail(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -202,10 +202,10 @@ def add_KVStoreServicer_to_server(servicer, server):
                     request_deserializer=kvstore__pb2.PingRequest.FromString,
                     response_serializer=kvstore__pb2.PingResponse.SerializeToString,
             ),
-            'TransferToNewTail': grpc.unary_unary_rpc_method_handler(
-                    servicer.TransferToNewTail,
-                    request_deserializer=kvstore__pb2.TransferToNewTailRequest.FromString,
-                    response_serializer=kvstore__pb2.TransferToNewTailResponse.SerializeToString,
+            'TransferTail': grpc.unary_unary_rpc_method_handler(
+                    servicer.TransferTail,
+                    request_deserializer=kvstore__pb2.TransferTailRequest.FromString,
+                    response_serializer=kvstore__pb2.TransferTailResponse.SerializeToString,
             ),
             'PromoteToHead': grpc.unary_unary_rpc_method_handler(
                     servicer.PromoteToHead,
@@ -381,7 +381,7 @@ class KVStore(object):
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def TransferToNewTail(request,
+    def TransferTail(request,
             target,
             options=(),
             channel_credentials=None,
@@ -391,9 +391,9 @@ class KVStore(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/TransferToNewTail',
-            kvstore__pb2.TransferToNewTailRequest.SerializeToString,
-            kvstore__pb2.TransferToNewTailResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/kvstore.KVStore/TransferTail',
+            kvstore__pb2.TransferTailRequest.SerializeToString,
+            kvstore__pb2.TransferTailResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -461,8 +461,8 @@ class MasterNodeStub(object):
                 request_serializer=kvstore__pb2.GetNextInChainRequest.SerializeToString,
                 response_deserializer=kvstore__pb2.GetReplicaResponse.FromString,
                 )
-        self.TransferToNewTailDone = channel.unary_unary(
-                '/kvstore.MasterNode/TransferToNewTailDone',
+        self.TransferTailDone = channel.unary_unary(
+                '/kvstore.MasterNode/TransferTailDone',
                 request_serializer=kvstore__pb2.TailUpdated.SerializeToString,
                 response_deserializer=kvstore__pb2.Empty.FromString,
                 )
@@ -500,7 +500,7 @@ class MasterNodeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def TransferToNewTailDone(self, request, context):
+    def TransferTailDone(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -535,8 +535,8 @@ def add_MasterNodeServicer_to_server(servicer, server):
                     request_deserializer=kvstore__pb2.GetNextInChainRequest.FromString,
                     response_serializer=kvstore__pb2.GetReplicaResponse.SerializeToString,
             ),
-            'TransferToNewTailDone': grpc.unary_unary_rpc_method_handler(
-                    servicer.TransferToNewTailDone,
+            'TransferTailDone': grpc.unary_unary_rpc_method_handler(
+                    servicer.TransferTailDone,
                     request_deserializer=kvstore__pb2.TailUpdated.FromString,
                     response_serializer=kvstore__pb2.Empty.SerializeToString,
             ),
@@ -624,7 +624,7 @@ class MasterNode(object):
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
     @staticmethod
-    def TransferToNewTailDone(request,
+    def TransferTailDone(request,
             target,
             options=(),
             channel_credentials=None,
@@ -634,7 +634,7 @@ class MasterNode(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/TransferToNewTailDone',
+        return grpc.experimental.unary_unary(request, target, '/kvstore.MasterNode/TransferTailDone',
             kvstore__pb2.TailUpdated.SerializeToString,
             kvstore__pb2.Empty.FromString,
             options, channel_credentials,
