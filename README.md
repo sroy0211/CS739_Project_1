@@ -1,6 +1,6 @@
 # CS739_Project_3 : Variable Membership KV Store
 
-This project implements a durable key-value store with client and server components, providing PUT and GET operations with durability guarantees. The system supports multiple clients, ensures data persistence across crashes, and uses a chain replication approach to handle node failures efficiently.
+This project implements a durable, scalable key-value store with client and server components. The system supports multiple clients, ensures data persistence across crashes, and uses a chain replication approach to handle node failures and membership changes.
 
 ## Environment Setup
 **Pick one of the two ways to install the environment:**
